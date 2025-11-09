@@ -55,11 +55,12 @@ SPEED_FPS_RE = re.compile(r"\b(speed|enc|encoding)[^\n]*?(\d+(?:\.\d+)?)\s*fps\b
 # Fallback fps if no speed line matched (used cautiously)
 ANY_FPS_RE   = re.compile(r"\b(\d+(?:\.\d+)?)\s*fps\b", re.IGNORECASE)
 # Percent formats: "37.5%" or "progress: 37.5"
-PCT_RE = re.compile(r"(?:(\d{1,3})(?:\.(\d+))?%)|progress\s*[:=]\s*(\d+(?:\.\n\d+)?)", re.IGNORECASE)
+PCT_RE = re.compile(r"(?:(\d{1,3})(?:\.(\d+))?%)|progress\s*[:=]\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 # Encoded frames count "Encoded X / Y"
 ENC_RE   = re.compile(r"encoded\s+(\d+)\s*/\s*(\d+)", re.IGNORECASE)
 # av1an sometimes logs "chunk X / Y"
 CHUNK_RE = re.compile(r"chunk\s+(\d+)\s*/\s*(\d+)", re.IGNORECASE)
+SPEED_X_RE = re.compile(r"speed\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)x", re.IGNORECASE)
 
 # -------------------------- System capability checks -------------------------
 
@@ -151,6 +152,9 @@ class Job:
     returncode: Optional[int] = None
     line_queue: Queue[str] = field(default_factory=Queue)
     reader_thread: Optional[threading.Thread] = None
+    src_fps: Optional[float] = None
+    last_encoded_count: Optional[int] = None
+    last_encoded_ts: Optional[float] = None
 
 # ------------------------------- GUI Widgets ---------------------------------
 class JobTile(QtWidgets.QFrame):
@@ -319,6 +323,10 @@ class Runner(QtCore.QObject):
             )
             job.reader_thread.start()
             self.running[idx] = job
+            job.started_ts = time.time()
+            job.last_encoded_count = None
+            job.last_encoded_ts = None
+            job.fps_hist.clear()
 
     def _drain_stdout(self, job: Job):
         proc = job.proc
@@ -334,21 +342,45 @@ class Runner(QtCore.QObject):
             job.line_queue.put(line)
 
     def _parse_line_into_job(self, job: Job, line: str):
-        # FPS (ignore stream descriptors)
-        if not IGNORE_FPS_LINE.search(line):
-            m = SPEED_FPS_RE.search(line)
-            if m:
+        ignore_fps_line = IGNORE_FPS_LINE.search(line)
+
+        # Learn source fps from stream descriptors but don't chart them directly
+        if ignore_fps_line and job.src_fps is None:
+            m_src = ANY_FPS_RE.search(line)
+            if m_src:
                 try:
-                    job.fps_hist.append(float(m.group(2)))
+                    job.src_fps = float(m_src.group(1))
+                except Exception:
+                    pass
+
+        # FPS (ignore stream descriptors)
+        if not ignore_fps_line:
+            m_speed_x = SPEED_X_RE.search(line)
+            if m_speed_x and job.src_fps:
+                try:
+                    fps_val = job.src_fps * float(m_speed_x.group(1))
+                    if fps_val > 0:
+                        job.fps_hist.append(fps_val)
                 except Exception:
                     pass
             else:
-                m2 = ANY_FPS_RE.search(line)
-                if m2 and not IGNORE_FPS_LINE.search(line):
+                m = SPEED_FPS_RE.search(line)
+                if m:
                     try:
-                        job.fps_hist.append(float(m2.group(1)))
+                        fps_val = float(m.group(2))
+                        if fps_val > 0:
+                            job.fps_hist.append(fps_val)
                     except Exception:
                         pass
+                else:
+                    m2 = ANY_FPS_RE.search(line)
+                    if m2:
+                        try:
+                            fps_val = float(m2.group(1))
+                            if fps_val > 0:
+                                job.fps_hist.append(fps_val)
+                        except Exception:
+                            pass
         # Percent (explicit or inferred)
         m = PCT_RE.search(line)
         if m:
@@ -372,6 +404,20 @@ class Runner(QtCore.QObject):
                     y = float(m2.group(2))
                     if y > 0:
                         job.pct = (x / y) * 100.0
+                except Exception:
+                    pass
+                try:
+                    current = int(m2.group(1))
+                    now = time.time()
+                    if job.last_encoded_count is not None and job.last_encoded_ts:
+                        delta_frames = current - job.last_encoded_count
+                        delta_time = now - job.last_encoded_ts
+                        if delta_frames >= 0 and delta_time > 0:
+                            fps_val = delta_frames / delta_time
+                            if fps_val > 0:
+                                job.fps_hist.append(fps_val)
+                    job.last_encoded_count = current
+                    job.last_encoded_ts = now
                 except Exception:
                     pass
             else:
