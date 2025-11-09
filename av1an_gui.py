@@ -24,10 +24,12 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from queue import Empty, Queue
 from typing import Deque, Dict, List, Optional
 
 # ----------------------------- CONFIG (edit) ---------------------------------
@@ -147,6 +149,8 @@ class Job:
     done: bool = False
     failed: bool = False
     returncode: Optional[int] = None
+    line_queue: Queue[str] = field(default_factory=Queue)
+    reader_thread: Optional[threading.Thread] = None
 
 # ------------------------------- GUI Widgets ---------------------------------
 class JobTile(QtWidgets.QFrame):
@@ -310,7 +314,24 @@ class Runner(QtCore.QObject):
                 job.returncode = -1
                 print(f"Failed to start {job.infile}: {e}")
                 continue
+            job.reader_thread = threading.Thread(
+                target=self._drain_stdout, args=(job,), daemon=True
+            )
+            job.reader_thread.start()
             self.running[idx] = job
+
+    def _drain_stdout(self, job: Job):
+        proc = job.proc
+        if not proc or not proc.stdout:
+            return
+        while True:
+            try:
+                line = proc.stdout.readline()
+            except Exception:
+                break
+            if not line:
+                break
+            job.line_queue.put(line)
 
     def _parse_line_into_job(self, job: Job, line: str):
         # FPS (ignore stream descriptors)
@@ -365,15 +386,13 @@ class Runner(QtCore.QObject):
                         pass
 
     def _read_stream_increment(self, job: Job):
-        if not job.proc or not job.proc.stdout:
+        if not job.proc:
             return
         # Read up to N lines per tick so we don’t block the UI
         for _ in range(200):
             try:
-                line = job.proc.stdout.readline()
-            except Exception:
-                break
-            if not line:
+                line = job.line_queue.get_nowait()
+            except Empty:
                 break
             self._parse_line_into_job(job, line)
 
