@@ -113,17 +113,23 @@ DEFAULT_PRESETS = {
     },
 }
 
-SVT_ENCAPP = r"C:\7950xGUIEncoder\svt-av1-psyex\Bin\Release\SvtAv1EncApp.exe"
-TMPDIR = r"C:\7950xGUIEncoder\temp"
-MAX_PAR = 1
-USE_CHUNK_METHOD = "hybrid"
-INPUT_GLOBS = ["*.mkv", "*.mp4", "*.mov", "*.avi", "*.m2ts", "*.ts", "*.webm"]
-LOG_DIR = (Path.cwd() / ".log").resolve()
-OUT_DIR = Path(r"E:\Temp\AV1AN-Output")
-FPS_WINDOW = 60  # Reduced from 120 for better graph performance
-GUI_REFRESH_HZ = 8
-STOP_GRACE_SEC = 8.0
-TERM_GRACE_SEC = 6.0
+@dataclass(frozen=True)
+class AppConfig:
+    """Application constants grouped for OOP-friendly access."""
+    svt_encapp: str = r"C:\7950xGUIEncoder\svt-av1-psyex\Bin\Release\SvtAv1EncApp.exe"
+    tmpdir: str = r"C:\7950xGUIEncoder\temp"
+    max_par: int = 1
+    use_chunk_method: str = "hybrid"
+    input_globs: Tuple[str, ...] = ("*.mkv", "*.mp4", "*.mov", "*.avi", "*.m2ts", "*.ts", "*.webm")
+    log_dir: Path = field(default_factory=lambda: (Path.cwd() / ".log").resolve())
+    out_dir: Path = Path(r"E:\Temp\AV1AN-Output")
+    fps_window: int = 60
+    gui_refresh_hz: int = 8
+    stop_grace_sec: float = 8.0
+    term_grace_sec: float = 6.0
+
+
+APP_CONFIG = AppConfig()
 # -----------------------------------------------------------------------------
 
 IS_WINDOWS = (os.name == "nt") or (platform.system().lower() == "windows")
@@ -145,73 +151,84 @@ S_PER_FR_RE  = re.compile(r"([0-9]+(?:\.\d+)?)\s*s/fr", re.IGNORECASE)
 PCT_RE = re.compile(r"(?:(\d{1,3})(?:\.(\d+))?%)|progress\s*[:=]\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
-# -------------------------- System capability checks -------------------------
-def check_tool(name: str, hint: str) -> bool:
-    """Check if tool exists, return True if found."""
-    return shutil.which(name) is not None
+class SystemTools:
+    """System capability checks and dependencies."""
 
-def get_missing_tools() -> List[Tuple[str, str]]:
-    """Return list of (tool, hint) for missing required tools."""
-    tools = [
+    REQUIRED_TOOLS: Tuple[Tuple[str, str], ...] = (
         ("av1an", "install av1an and ensure it's on PATH"),
         ("mkvmerge", "install MKVToolNix and ensure mkvmerge is on PATH"),
         ("ffmpeg", "install ffmpeg and ensure it's on PATH"),
-    ]
-    return [(name, hint) for name, hint in tools if not check_tool(name, hint)]
+    )
 
-# ----------------------------- Utility helpers -------------------------------
-def _strip_lp(s: str) -> str:
-    toks = shlex.split(s)
-    out = []
-    skip = False
-    for t in toks:
-        if skip:
-            skip = False
-            continue
-        if t == "--lp":
-            skip = True
-            continue
-        out.append(t)
-    return shlex.join(out)
+    @staticmethod
+    def check_tool(name: str) -> bool:
+        return shutil.which(name) is not None
 
-def format_size(size_bytes: int) -> str:
-    """Format bytes to human readable size."""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.2f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.2f} PB"
+    @classmethod
+    def get_missing_tools(cls) -> List[Tuple[str, str]]:
+        return [(name, hint) for name, hint in cls.REQUIRED_TOOLS if not cls.check_tool(name)]
 
-def format_duration(seconds: float) -> str:
-    """Format seconds to readable duration."""
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    elif seconds < 3600:
-        m, s = divmod(int(seconds), 60)
-        return f"{m}:{s:02d}"
-    else:
+
+class FormatUtils:
+    """Formatting helpers used throughout the UI."""
+
+    @staticmethod
+    def strip_lp(args: str) -> str:
+        toks = shlex.split(args)
+        out = []
+        skip = False
+        for t in toks:
+            if skip:
+                skip = False
+                continue
+            if t == "--lp":
+                skip = True
+                continue
+            out.append(t)
+        return shlex.join(out)
+
+    @staticmethod
+    def format_size(size_bytes: int) -> str:
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} PB"
+
+    @staticmethod
+    def format_duration(seconds: float) -> str:
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        if seconds < 3600:
+            m, s = divmod(int(seconds), 60)
+            return f"{m}:{s:02d}"
         h, remainder = divmod(int(seconds), 3600)
         m, s = divmod(remainder, 60)
         return f"{h}:{m:02d}:{s:02d}"
 
-def get_disk_usage(path: Path) -> Tuple[int, int, int]:
-    """Return (total, used, free) disk space in bytes."""
-    try:
-        if IS_WINDOWS:
-            import ctypes
-            free_bytes = ctypes.c_ulonglong(0)
-            total_bytes = ctypes.c_ulonglong(0)
-            ctypes.windll.kernel32.GetDiskFreeSpaceExW(
-                str(path), None, ctypes.byref(total_bytes), ctypes.byref(free_bytes)
-            )
-            return (total_bytes.value, total_bytes.value - free_bytes.value, free_bytes.value)
-        else:
+
+class DiskUtils:
+    """Disk related helpers."""
+
+    @staticmethod
+    def get_disk_usage(path: Path) -> Tuple[int, int, int]:
+        try:
+            if IS_WINDOWS:
+                import ctypes
+
+                free_bytes = ctypes.c_ulonglong(0)
+                total_bytes = ctypes.c_ulonglong(0)
+                ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                    str(path), None, ctypes.byref(total_bytes), ctypes.byref(free_bytes)
+                )
+                return (total_bytes.value, total_bytes.value - free_bytes.value, free_bytes.value)
             stat = os.statvfs(path)
             total = stat.f_blocks * stat.f_frsize
             free = stat.f_bavail * stat.f_frsize
             return (total, total - free, free)
-    except Exception:
-        return (0, 0, 0)
+        except Exception:
+            return (0, 0, 0)
+
 
 # ------------------------------ CPU Groups -----------------------------------
 @dataclass
@@ -220,178 +237,174 @@ class CpuGroup:
     socket: int
     cpus: List[int]
 
-def _parse_cpu_groups_env(max_par: int) -> Optional[List[CpuGroup]]:
-    env = os.environ.get("CPU_GROUPS")
-    if not env:
-        return None
-    groups: List[CpuGroup] = []
-    for chunk in env.split(";"):
-        cpus: List[int] = []
-        for span in chunk.strip().split(","):
-            span = span.strip()
-            if not span:
-                continue
-            if "-" in span:
-                a, b = span.split("-", 1)
-                cpus.extend(list(range(int(a), int(b) + 1)))
-            else:
-                cpus.append(int(span))
-        if cpus:
-            groups.append(CpuGroup(node=0, socket=0, cpus=sorted(set(cpus))))
-        if len(groups) >= max_par:
-            break
-    return groups or None
 
-def read_ryzen_groups(max_par: int) -> List[CpuGroup]:
-    env_groups = _parse_cpu_groups_env(max_par)
-    if env_groups:
-        return env_groups
+class CpuTopology:
+    """CPU group and worker allocation helpers."""
 
-    logical = os.cpu_count() or 1
-    cpus = list(range(logical))
-    max_par = max(1, min(max_par, logical))
+    @staticmethod
+    def parse_cpu_groups_env(max_par: int) -> Optional[List[CpuGroup]]:
+        env = os.environ.get("CPU_GROUPS")
+        if not env:
+            return None
+        groups: List[CpuGroup] = []
+        for chunk in env.split(";"):
+            cpus: List[int] = []
+            for span in chunk.strip().split(","):
+                span = span.strip()
+                if not span:
+                    continue
+                if "-" in span:
+                    a, b = span.split("-", 1)
+                    cpus.extend(list(range(int(a), int(b) + 1)))
+                else:
+                    cpus.append(int(span))
+            if cpus:
+                groups.append(CpuGroup(node=0, socket=0, cpus=sorted(set(cpus))))
+            if len(groups) >= max_par:
+                break
+        return groups or None
 
-    base = logical // max_par
-    rem = logical - base * max_par
+    @classmethod
+    def read_ryzen_groups(cls, max_par: int) -> List[CpuGroup]:
+        env_groups = cls.parse_cpu_groups_env(max_par)
+        if env_groups:
+            return env_groups
 
-    groups: List[CpuGroup] = []
-    start = 0
-    for i in range(max_par):
-        take = base + (1 if i < rem else 0)
-        chunk = cpus[start:start + take]
-        start += take
-        if chunk:
-            groups.append(CpuGroup(node=0, socket=0, cpus=chunk))
-    return groups
+        logical = os.cpu_count() or 1
+        cpus = list(range(logical))
+        max_par = max(1, min(max_par, logical))
 
-def calculate_optimal_workers(available_cores: int, preset_workers: Any, max_par: int = 1) -> Tuple[int, int]:
-    """
-    Calculate optimal number of av1an workers and threads per worker.
-    
-    Strategy:
-    - For single job (max_par=1): Use many workers to maximize parallelism
-    - For multi-job: Reduce workers per job to avoid total worker explosion
-    
-    Args:
-        available_cores: Number of cores available to this job
-        preset_workers: Preset worker setting ("auto" or int)
-        max_par: Number of parallel jobs running
-    
-    Returns: (num_workers, threads_per_worker)
-    """
-    if isinstance(preset_workers, int) and preset_workers > 0:
-        # Explicit worker count specified
-        workers = preset_workers
-        threads_per = max(1, available_cores // workers)
-        return (workers, threads_per)
-    
-    # Auto-scale based on core count and parallel jobs
-    if max_par == 1:
-        # Single job mode - maximize parallelism
-        if available_cores <= 4:
-            workers = min(2, available_cores)
+        base = logical // max_par
+        rem = logical - base * max_par
+
+        groups: List[CpuGroup] = []
+        start = 0
+        for i in range(max_par):
+            take = base + (1 if i < rem else 0)
+            chunk = cpus[start:start + take]
+            start += take
+            if chunk:
+                groups.append(CpuGroup(node=0, socket=0, cpus=chunk))
+        return groups
+
+    @staticmethod
+    def calculate_optimal_workers(available_cores: int, preset_workers: Any, max_par: int = 1) -> Tuple[int, int]:
+        """Calculate worker count and threads per worker based on core budget."""
+        if isinstance(preset_workers, int) and preset_workers > 0:
+            workers = preset_workers
             threads_per = max(1, available_cores // workers)
-        elif available_cores <= 8:
-            workers = 4
-            threads_per = 2
-        elif available_cores <= 16:
-            workers = 8
-            threads_per = 2
+            return (workers, threads_per)
+
+        if max_par == 1:
+            if available_cores <= 4:
+                workers = min(2, available_cores)
+                threads_per = max(1, available_cores // workers)
+            elif available_cores <= 8:
+                workers = 4
+                threads_per = 2
+            elif available_cores <= 16:
+                workers = 8
+                threads_per = 2
+            else:
+                workers = min(16, available_cores // 2)
+                threads_per = max(2, available_cores // workers)
         else:
-            # 32+ threads: 16 workers × 2 threads
-            workers = min(16, available_cores // 2)
-            threads_per = max(2, available_cores // workers)
-    else:
-        # Multi-job mode - reduce workers to avoid contention
-        # With 4 jobs × 16 workers each = 64 total workers = BAD
-        # Better: 4 jobs × 4 workers each = 16 total workers = GOOD
-        if available_cores <= 4:
-            workers = 1
-            threads_per = available_cores
-        elif available_cores <= 8:
-            workers = 2
-            threads_per = max(2, available_cores // 2)
-        elif available_cores <= 16:
-            workers = 4
-            threads_per = max(2, available_cores // 4)
-        else:
-            # Even with 32 threads per job, use fewer workers
-            # 4-8 workers per job max to keep total worker count reasonable
-            workers = min(8, available_cores // 4)
-            threads_per = max(2, available_cores // workers)
-    
-    return (workers, threads_per)
+            if available_cores <= 4:
+                workers = 1
+                threads_per = available_cores
+            elif available_cores <= 8:
+                workers = 2
+                threads_per = max(2, available_cores // 2)
+            elif available_cores <= 16:
+                workers = 4
+                threads_per = max(2, available_cores // 4)
+            else:
+                workers = min(8, available_cores // 4)
+                threads_per = max(2, available_cores // workers)
 
-# --------------------------- Windows CPU affinity ----------------------------
-def _set_process_affinity(pid: int, cpus: List[int]) -> None:
-    if not IS_WINDOWS:
-        return
-    try:
-        import psutil
-        psutil.Process(pid).cpu_affinity(cpus)
-    except Exception:
-        pass
+        return (workers, threads_per)
 
-# ----------------------------- Process helpers -------------------------------
-def _windows_ctrl_break(proc: subprocess.Popen) -> bool:
-    if not IS_WINDOWS:
-        return False
-    try:
-        proc.send_signal(signal.CTRL_BREAK_EVENT)
-        return True
-    except Exception:
-        return False
 
-def _safe_terminate(proc: subprocess.Popen) -> None:
-    try:
-        proc.terminate()
-    except Exception:
-        pass
+class ProcessControl:
+    """Process lifecycle helpers."""
 
-def _safe_kill(proc: subprocess.Popen) -> None:
-    try:
-        proc.kill()
-    except Exception:
-        pass
+    @staticmethod
+    def set_process_affinity(pid: int, cpus: List[int]) -> None:
+        if not IS_WINDOWS:
+            return
+        try:
+            import psutil
 
-def _try_import_psutil():
-    try:
-        import psutil
-        return psutil
-    except Exception:
-        return None
+            psutil.Process(pid).cpu_affinity(cpus)
+        except Exception:
+            pass
 
-def _suspend_tree(root_pid: int) -> bool:
-    psutil = _try_import_psutil()
-    if psutil is None:
-        return False
-    try:
-        root = psutil.Process(root_pid)
-        procs = [root] + root.children(recursive=True)
-        for p in reversed(procs):
-            try:
-                p.suspend()
-            except Exception:
-                pass
-        return True
-    except Exception:
-        return False
+    @staticmethod
+    def windows_ctrl_break(proc: subprocess.Popen) -> bool:
+        if not IS_WINDOWS:
+            return False
+        try:
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+            return True
+        except Exception:
+            return False
 
-def _resume_tree(root_pid: int) -> bool:
-    psutil = _try_import_psutil()
-    if psutil is None:
-        return False
-    try:
-        root = psutil.Process(root_pid)
-        procs = [root] + root.children(recursive=True)
-        for p in procs:
-            try:
-                p.resume()
-            except Exception:
-                pass
-        return True
-    except Exception:
-        return False
+    @staticmethod
+    def safe_terminate(proc: subprocess.Popen) -> None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    @staticmethod
+    def safe_kill(proc: subprocess.Popen) -> None:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    @staticmethod
+    def try_import_psutil():
+        try:
+            import psutil
+
+            return psutil
+        except Exception:
+            return None
+
+    @classmethod
+    def suspend_tree(cls, root_pid: int) -> bool:
+        psutil = cls.try_import_psutil()
+        if psutil is None:
+            return False
+        try:
+            root = psutil.Process(root_pid)
+            procs = [root] + root.children(recursive=True)
+            for p in reversed(procs):
+                try:
+                    p.suspend()
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def resume_tree(cls, root_pid: int) -> bool:
+        psutil = cls.try_import_psutil()
+        if psutil is None:
+            return False
+        try:
+            root = psutil.Process(root_pid)
+            procs = [root] + root.children(recursive=True)
+            for p in procs:
+                try:
+                    p.resume()
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return False
 
 # ------------------------------- System Monitor ------------------------------
 class SystemMonitor(QThread):
@@ -401,7 +414,7 @@ class SystemMonitor(QThread):
     def __init__(self):
         super().__init__()
         self.running = True
-        self.psutil = _try_import_psutil()
+        self.psutil = ProcessControl.try_import_psutil()
         
     def run(self):
         while self.running:
@@ -437,7 +450,7 @@ class Job:
     custom_svt_opts: Optional[str] = None
     proc: Optional[subprocess.Popen] = None
     pct: float = 0.0
-    fps_hist: Deque[float] = field(default_factory=lambda: deque(maxlen=FPS_WINDOW))
+    fps_hist: Deque[float] = field(default_factory=lambda: deque(maxlen=APP_CONFIG.fps_window))
     started_ts: Optional[float] = None
     completed_ts: Optional[float] = None
     status: JobStatus = JobStatus.QUEUED
@@ -557,7 +570,7 @@ class SettingsDialog(QDialog):
         
         dir_layout = QHBoxLayout()
         dir_layout.addWidget(QLabel("Output Directory:"))
-        self.out_dir_edit = QLineEdit(str(OUT_DIR))
+        self.out_dir_edit = QLineEdit(str(APP_CONFIG.out_dir))
         dir_layout.addWidget(self.out_dir_edit, 1)
         browse_btn = QPushButton("Browse...")
         browse_btn.clicked.connect(self._browse_output_dir)
@@ -605,7 +618,7 @@ class SettingsDialog(QDialog):
         
         svt_layout = QHBoxLayout()
         svt_layout.addWidget(QLabel("SVT-AV1 Encoder:"))
-        self.svt_path_edit = QLineEdit(SVT_ENCAPP)
+        self.svt_path_edit = QLineEdit(APP_CONFIG.svt_encapp)
         svt_layout.addWidget(self.svt_path_edit, 1)
         browse_svt_btn = QPushButton("Browse...")
         browse_svt_btn.clicked.connect(self._browse_svt)
@@ -614,7 +627,7 @@ class SettingsDialog(QDialog):
         
         temp_layout = QHBoxLayout()
         temp_layout.addWidget(QLabel("Temp Directory:"))
-        self.temp_dir_edit = QLineEdit(TMPDIR)
+        self.temp_dir_edit = QLineEdit(APP_CONFIG.tmpdir)
         temp_layout.addWidget(self.temp_dir_edit, 1)
         browse_temp_btn = QPushButton("Browse...")
         browse_temp_btn.clicked.connect(self._browse_temp)
@@ -632,7 +645,7 @@ class SettingsDialog(QDialog):
         par_layout.addWidget(QLabel("Max Parallel Jobs:"))
         self.max_par_spin = QSpinBox()
         self.max_par_spin.setRange(1, os.cpu_count() or 1)
-        self.max_par_spin.setValue(MAX_PAR)
+        self.max_par_spin.setValue(APP_CONFIG.max_par)
         self.max_par_spin.setToolTip("Set to 1 to use ALL cores for a single job (fastest for one file).\nSet higher to encode multiple files simultaneously (splits cores between jobs).")
         par_layout.addWidget(self.max_par_spin)
         par_layout.addStretch()
@@ -642,7 +655,7 @@ class SettingsDialog(QDialog):
         chunk_layout.addWidget(QLabel("Chunk Method:"))
         self.chunk_combo = QComboBox()
         self.chunk_combo.addItems(["hybrid", "select", "ffms2", "lsmash"])
-        self.chunk_combo.setCurrentText(USE_CHUNK_METHOD)
+        self.chunk_combo.setCurrentText(APP_CONFIG.use_chunk_method)
         chunk_layout.addWidget(self.chunk_combo)
         chunk_layout.addStretch()
         perf_layout.addLayout(chunk_layout)
@@ -710,11 +723,11 @@ class SettingsDialog(QDialog):
             self.temp_dir_edit.setText(dir_path)
     
     def load_settings(self):
-        self.out_dir_edit.setText(self.settings.value("output_dir", str(OUT_DIR)))
-        self.svt_path_edit.setText(self.settings.value("svt_path", SVT_ENCAPP))
-        self.temp_dir_edit.setText(self.settings.value("temp_dir", TMPDIR))
-        self.max_par_spin.setValue(int(self.settings.value("max_par", MAX_PAR)))
-        self.chunk_combo.setCurrentText(self.settings.value("chunk_method", USE_CHUNK_METHOD))
+        self.out_dir_edit.setText(self.settings.value("output_dir", str(APP_CONFIG.out_dir)))
+        self.svt_path_edit.setText(self.settings.value("svt_path", APP_CONFIG.svt_encapp))
+        self.temp_dir_edit.setText(self.settings.value("temp_dir", APP_CONFIG.tmpdir))
+        self.max_par_spin.setValue(int(self.settings.value("max_par", APP_CONFIG.max_par)))
+        self.chunk_combo.setCurrentText(self.settings.value("chunk_method", APP_CONFIG.use_chunk_method))
         self.auto_cleanup_check.setChecked(self.settings.value("auto_cleanup", True, type=bool))
         self.notif_complete_check.setChecked(self.settings.value("notif_complete", True, type=bool))
         self.notif_error_check.setChecked(self.settings.value("notif_error", True, type=bool))
@@ -919,12 +932,12 @@ class JobTile(QFrame):
         if max_par == 1:
             # Single job mode - uses all system cores
             system_cores = os.cpu_count() or 1
-            workers, threads = calculate_optimal_workers(system_cores, preset.get("workers", "auto"), max_par)
+            workers, threads = CpuTopology.calculate_optimal_workers(system_cores, preset.get("workers", "auto"), max_par)
             info_text = f"Cores: {system_cores} (all)  •  Workers: {workers}x{threads}t"
         else:
             # Multi-job mode - uses assigned cores with reduced workers
             assigned_cores = len(job.cpus)
-            workers, threads = calculate_optimal_workers(assigned_cores, preset.get("workers", "auto"), max_par)
+            workers, threads = CpuTopology.calculate_optimal_workers(assigned_cores, preset.get("workers", "auto"), max_par)
             info_text = f"Cores: {assigned_cores}/{os.cpu_count() or 1}  •  Workers: {workers}x{threads}t"
         
         self.info_label = QLabel(info_text + f"  •  Preset: {job.preset_name}")
@@ -1060,23 +1073,23 @@ class JobTile(QFrame):
             stats_parts.append(f"FPS: {self.job.current_fps:.1f} (avg: {self.job.avg_fps:.1f})")
             
             if self.job.eta_seconds:
-                eta_str = format_duration(self.job.eta_seconds)
+                eta_str = FormatUtils.format_duration(self.job.eta_seconds)
                 stats_parts.append(f"ETA: {eta_str}")
             
-            elapsed = format_duration(self.job.elapsed_time)
+            elapsed = FormatUtils.format_duration(self.job.elapsed_time)
             stats_parts.append(f"Elapsed: {elapsed}")
         
         elif self.job.status == JobStatus.PAUSED:
-            elapsed = format_duration(self.job.elapsed_time)
+            elapsed = FormatUtils.format_duration(self.job.elapsed_time)
             stats_parts.append(f"PAUSED  •  Elapsed: {elapsed}")
         
         elif self.job.status == JobStatus.COMPLETED:
-            elapsed = format_duration(self.job.elapsed_time)
+            elapsed = FormatUtils.format_duration(self.job.elapsed_time)
             stats_parts.append(f"Completed in {elapsed}")
             
             if self.job.encoded_size > 0:
-                orig = format_size(self.job.original_size)
-                enc = format_size(self.job.encoded_size)
+                orig = FormatUtils.format_size(self.job.original_size)
+                enc = FormatUtils.format_size(self.job.encoded_size)
                 ratio = self.job.compression_ratio
                 stats_parts.append(f"{orig} → {enc} ({ratio:.1f}% saved)")
         
@@ -1137,20 +1150,20 @@ class Runner(QObject):
         
         self.out_dir = Path(config["output_dir"])
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        APP_CONFIG.log_dir.mkdir(parents=True, exist_ok=True)
         
         self.temp_dir = Path(config["temp_dir"])
         os.makedirs(self.temp_dir, exist_ok=True)
         
         svt_path = Path(config["svt_path"])
         if not svt_path.is_file():
-            raise SystemExit(f"SVT_ENCAPP not found: {config['svt_path']}")
+            raise SystemExit(f"APP_CONFIG.svt_encapp not found: {config['svt_path']}")
         
         self.proc_env = os.environ.copy()
         self.proc_env["PATH"] = str(svt_path.parent) + os.pathsep + self.proc_env.get("PATH", "")
         
         self.max_par = config["max_par"]
-        self.groups = read_ryzen_groups(self.max_par)
+        self.groups = CpuTopology.read_ryzen_groups(self.max_par)
         if not self.groups:
             raise SystemExit("No usable CPU groups found; aborting.")
         
@@ -1164,7 +1177,7 @@ class Runner(QObject):
         
         self.timer = QTimer()
         self.timer.timeout.connect(self._tick)
-        self.timer.start(int(1000 / GUI_REFRESH_HZ))
+        self.timer.start(int(1000 / APP_CONFIG.gui_refresh_hz))
         
         self._closing = False
         self._close_lock = threading.Lock()
@@ -1185,8 +1198,8 @@ class Runner(QObject):
                 infile=f,
                 out_mkv=self.out_dir / f"{base}-svt_av1.mkv",
                 tempdir=self.temp_dir / base,
-                term_log=LOG_DIR / f"{base}.term.log",
-                mux_log=LOG_DIR / f"{base}.mux.log",
+                term_log=APP_CONFIG.log_dir / f"{base}.term.log",
+                mux_log=APP_CONFIG.log_dir / f"{base}.mux.log",
                 node=grp.node,
                 socket=grp.socket,
                 cpus=grp.cpus,
@@ -1256,32 +1269,32 @@ class Runner(QObject):
                 procs.append(job.proc)
                 if job.status == JobStatus.PAUSED:
                     try:
-                        _resume_tree(job.proc.pid)
+                        ProcessControl.resume_tree(job.proc.pid)
                     except Exception:
                         pass
         
         for p in procs:
-            _windows_ctrl_break(p)
+            ProcessControl.windows_ctrl_break(p)
         
         t0 = time.time()
-        while time.time() - t0 < STOP_GRACE_SEC:
+        while time.time() - t0 < APP_CONFIG.stop_grace_sec:
             if all(p.poll() is not None for p in procs):
                 return
             time.sleep(0.1)
         
         for p in procs:
             if p.poll() is None:
-                _safe_terminate(p)
+                ProcessControl.safe_terminate(p)
         
         t1 = time.time()
-        while time.time() - t1 < TERM_GRACE_SEC:
+        while time.time() - t1 < APP_CONFIG.term_grace_sec:
             if all(p.poll() is not None for p in procs):
                 return
             time.sleep(0.1)
         
         for p in procs:
             if p.poll() is None:
-                _safe_kill(p)
+                ProcessControl.safe_kill(p)
     
     def toggle_pause(self, job_idx: int):
         job = self.jobs[job_idx]
@@ -1290,14 +1303,14 @@ class Runner(QObject):
         
         pid = job.proc.pid
         if job.status == JobStatus.RUNNING:
-            ok = _suspend_tree(pid)
+            ok = ProcessControl.suspend_tree(pid)
             if not ok:
                 self.notify.emit("Pause requires psutil. Install with: pip install psutil")
                 return
             job.status = JobStatus.PAUSED
             self.notify.emit(f"Paused: {job.infile.name}")
         elif job.status == JobStatus.PAUSED:
-            ok = _resume_tree(pid)
+            ok = ProcessControl.resume_tree(pid)
             if not ok:
                 self.notify.emit("Resume failed (psutil missing or process already ended).")
                 return
@@ -1326,11 +1339,11 @@ class Runner(QObject):
             available_cores = len(job.cpus)
         
         preset_workers = preset.get("workers", "auto")
-        workers, threads_per_worker = calculate_optimal_workers(available_cores, preset_workers, self.max_par)
+        workers, threads_per_worker = CpuTopology.calculate_optimal_workers(available_cores, preset_workers, self.max_par)
         
         # Build SVT-AV1 options with optimal thread count
         svt_opts = job.custom_svt_opts or preset["svt_opts"]
-        svt_cli = _strip_lp(svt_opts)
+        svt_cli = FormatUtils.strip_lp(svt_opts)
         svt_cli = shlex.join([*shlex.split(svt_cli), "--lp", str(threads_per_worker)])
         
         passes = preset.get("passes", 1)
@@ -1380,10 +1393,10 @@ class Runner(QObject):
             self.notify.emit(f"System cores: {total_system_cores}, Job assigned: {len(job.cpus)} cores: {job.cpus[:8]}...")
             
             # Check disk space
-            _, _, free = get_disk_usage(self.out_dir)
+            _, _, free = DiskUtils.get_disk_usage(self.out_dir)
             warn_threshold = self.config.get("disk_warn_gb", 50) * 1024 * 1024 * 1024
             if free < warn_threshold:
-                self.notify.emit(f"⚠ Low disk space: {format_size(free)} remaining!")
+                self.notify.emit(f"⚠ Low disk space: {FormatUtils.format_size(free)} remaining!")
             
             args = self._build_av1an_args(job)
             
@@ -1398,7 +1411,7 @@ class Runner(QObject):
                 cores_used = len(job.cpus)
                 cores_mode = "assigned cores only"
             
-            workers, threads = calculate_optimal_workers(cores_used, preset.get("workers", "auto"), self.max_par)
+            workers, threads = CpuTopology.calculate_optimal_workers(cores_used, preset.get("workers", "auto"), self.max_par)
             
             job.fps_hist.clear()
             job.ema_fps = None
@@ -1464,7 +1477,7 @@ class Runner(QObject):
             # For single job (max_par=1), let av1an workers use ALL system cores
             if self.max_par > 1:
                 try:
-                    _set_process_affinity(job.proc.pid, job.cpus)
+                    ProcessControl.set_process_affinity(job.proc.pid, job.cpus)
                     self.notify.emit(f"CPU affinity set to cores: {job.cpus}")
                 except Exception:
                     pass
@@ -1764,7 +1777,7 @@ class MainWindow(QMainWindow):
         self.config = self.load_config()
         
         # Check for missing tools
-        missing_tools = get_missing_tools()
+        missing_tools = SystemTools.get_missing_tools()
         if missing_tools:
             msg = "Missing required tools:\n\n"
             for tool, hint in missing_tools:
@@ -2058,11 +2071,11 @@ class MainWindow(QMainWindow):
     def load_config(self) -> Dict[str, Any]:
         """Load configuration from settings."""
         config = {
-            "output_dir": self.settings.value("output_dir", str(OUT_DIR)),
-            "svt_path": self.settings.value("svt_path", SVT_ENCAPP),
-            "temp_dir": self.settings.value("temp_dir", TMPDIR),
-            "max_par": int(self.settings.value("max_par", MAX_PAR)),
-            "chunk_method": self.settings.value("chunk_method", USE_CHUNK_METHOD),
+            "output_dir": self.settings.value("output_dir", str(APP_CONFIG.out_dir)),
+            "svt_path": self.settings.value("svt_path", APP_CONFIG.svt_encapp),
+            "temp_dir": self.settings.value("temp_dir", APP_CONFIG.tmpdir),
+            "max_par": int(self.settings.value("max_par", APP_CONFIG.max_par)),
+            "chunk_method": self.settings.value("chunk_method", APP_CONFIG.use_chunk_method),
             "auto_cleanup": self.settings.value("auto_cleanup", True, type=bool),
             "notif_complete": self.settings.value("notif_complete", True, type=bool),
             "notif_error": self.settings.value("notif_error", True, type=bool),
@@ -2078,7 +2091,7 @@ class MainWindow(QMainWindow):
     def load_initial_files(self):
         """Load files from current directory on startup."""
         files: List[Path] = []
-        for g in INPUT_GLOBS:
+        for g in APP_CONFIG.input_globs:
             files.extend(Path.cwd().glob(g))
         
         if files:
@@ -2171,10 +2184,10 @@ class MainWindow(QMainWindow):
                         job.status.value,
                         job.preset_name,
                         f"{job.pct:.1f}",
-                        format_size(job.original_size),
-                        format_size(job.encoded_size) if job.encoded_size > 0 else "—",
+                        FormatUtils.format_size(job.original_size),
+                        FormatUtils.format_size(job.encoded_size) if job.encoded_size > 0 else "—",
                         f"{job.compression_ratio:.1f}" if job.compression_ratio > 0 else "—",
-                        format_duration(job.elapsed_time),
+                        FormatUtils.format_duration(job.elapsed_time),
                         f"{job.avg_fps:.2f}",
                         job.retry_count,
                         job.error_message or "—"
@@ -2227,13 +2240,13 @@ class MainWindow(QMainWindow):
             self.cpu_label.setText(f"CPU: {stats['cpu_percent']:.1f}%")
         
         if 'mem_percent' in stats:
-            mem_used = format_size(stats.get('mem_used', 0))
-            mem_total = format_size(stats.get('mem_total', 0))
+            mem_used = FormatUtils.format_size(stats.get('mem_used', 0))
+            mem_total = FormatUtils.format_size(stats.get('mem_total', 0))
             self.mem_label.setText(f"RAM: {stats['mem_percent']:.1f}% ({mem_used} / {mem_total})")
         
         # Update disk usage
-        _, _, free = get_disk_usage(Path(self.config["output_dir"]))
-        self.disk_label.setText(f"Disk Free: {format_size(free)}")
+        _, _, free = DiskUtils.get_disk_usage(Path(self.config["output_dir"]))
+        self.disk_label.setText(f"Disk Free: {FormatUtils.format_size(free)}")
     
     @Slot()
     def on_all_jobs_completed(self):
@@ -2319,26 +2332,35 @@ class MainWindow(QMainWindow):
         event.accept()
 
 # --------------------------------- Main --------------------------------------
+class EncoderApplication:
+    """Application bootstrap object for OOP-compliant startup flow."""
+
+    def __init__(self):
+        self.app = QApplication(sys.argv)
+        self.app.setApplicationName("AV1 Encoder Pro")
+        self.app.setOrganizationName("AV1Runner")
+        self.app.setStyle("Fusion")
+        self.window = MainWindow()
+
+    def setup_signals(self):
+        def handle_sigint(*_):
+            self.window.close()
+
+        try:
+            signal.signal(signal.SIGINT, handle_sigint)
+        except Exception:
+            pass
+
+    def run(self) -> int:
+        self.setup_signals()
+        self.window.show()
+        return self.app.exec()
+
+
 def main():
-    app = QApplication(sys.argv)
-    app.setApplicationName("AV1 Encoder Pro")
-    app.setOrganizationName("AV1Runner")
-    
-    # Set Fusion style for better cross-platform appearance
-    app.setStyle("Fusion")
-    
-    win = MainWindow()
-    win.show()
-    
-    def handle_sigint(*_):
-        win.close()
-    
-    try:
-        signal.signal(signal.SIGINT, handle_sigint)
-    except Exception:
-        pass
-    
-    sys.exit(app.exec())
+    application = EncoderApplication()
+    sys.exit(application.run())
+
 
 if __name__ == "__main__":
     main()
