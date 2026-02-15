@@ -121,6 +121,12 @@ class MainWindow(QMainWindow):
         sl.addWidget(g_job)
         
         split.addWidget(stats)
+        
+        # --- FIX: Set initial sizes [Top, Bottom] ---
+        # 10000 vs 1 ensures the top gets all available space 
+        # while the bottom shrinks to its minimum requirements.
+        split.setSizes([10000, 1]) 
+        
         layout.addWidget(split)
         
         self.tiles = {}
