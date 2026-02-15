@@ -1,0 +1,9 @@
+/.log/
+/__pycache__/
+/logs/
+/temp/
+/ui/__pycache__/
+debug.log
+*.mkv
+*.ffindex
+start.bat
