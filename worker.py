@@ -343,8 +343,31 @@ class Runner(QObject):
         self.shutdown_complete.emit()
 
     def toggle_pause(self, job_idx: int):
-        # Pause not implemented for file-pipe mode yet
-        self.notify.emit("Pause not supported in Fast Mode")
+        with self.run_lock:
+            job = self.jobs[job_idx]
+            
+            # Case 1: Pausing
+            if job.status == JobStatus.RUNNING:
+                # We use _suspend_tree to pause the main process AND all subprocesses (av1an + workers)
+                if job.proc and _suspend_tree(job.proc.pid):
+                    job.status = JobStatus.PAUSED
+                    self.notify.emit(f"Paused {job.infile.name}")
+                    self.job_updated.emit(job_idx)
+                    # Rebalance other jobs to take advantage of freed CPU resources
+                    self._rebalance_affinity() 
+                else:
+                    self.notify.emit("Failed to suspend process (psutil error?)")
+
+            # Case 2: Resuming
+            elif job.status == JobStatus.PAUSED:
+                if job.proc and _resume_tree(job.proc.pid):
+                    job.status = JobStatus.RUNNING
+                    self.notify.emit(f"Resumed {job.infile.name}")
+                    self.job_updated.emit(job_idx)
+                    # Rebalance again to accommodate the resumed job
+                    self._rebalance_affinity()
+                else:
+                    self.notify.emit("Failed to resume process")
 
     def _build_av1an_args(self, job: Job, assigned_chunk: List[int]) -> List[str]:
         preset = DEFAULT_PRESETS.get(job.preset_name, DEFAULT_PRESETS["High Quality"])
@@ -379,6 +402,7 @@ class Runner(QObject):
 
     def _rebalance_affinity(self):
         if not self.running: return
+        # Only count jobs that are actively RUNNING (not PAUSED)
         active_jobs = [j for j in self.running.values() if j.status == JobStatus.RUNNING and j.proc]
         if not active_jobs: return
         
@@ -392,6 +416,7 @@ class Runner(QObject):
     def _start_next_if_possible(self):
         if self._closing: return
         with self.run_lock:
+            # Note: Paused jobs still count towards the MAX_JOBS_CAP to prevent RAM exhaustion
             active_count = len(self.queue) + len(self.running)
             dynamic_limit = max(1, min(active_count, MAX_JOBS_CAP))
             
