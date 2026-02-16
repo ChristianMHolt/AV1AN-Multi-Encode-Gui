@@ -30,8 +30,12 @@ class Job:
     infile: Path
     out_mkv: Path
     tempdir: Path
+    
+    # Log Paths
     term_log: Path
     mux_log: Path
+    vmaf_log: Path  # <--- NEW FIELD
+    
     preset_name: str = "High Quality"
     custom_svt_opts: Optional[str] = None
     
@@ -62,8 +66,8 @@ class Job:
     
     # VMAF Stats
     vmaf_score: float = 0.0
-    vmaf_1_percent: float = 0.0   # <--- New
-    vmaf_01_percent: float = 0.0  # <--- New
+    vmaf_1_percent: float = 0.0
+    vmaf_01_percent: float = 0.0
     
     log_read_offset: int = 0
     

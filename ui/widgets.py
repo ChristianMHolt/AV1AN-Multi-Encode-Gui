@@ -148,7 +148,6 @@ class JobTile(QFrame):
                 ratio = (1 - j.encoded_size / j.original_size) * 100
                 parts.append(f"Saved {ratio:.1f}%")
             if j.vmaf_score > 0:
-                # --- SHOW VMAF SCORE & LOWS ---
                 lows = ""
                 if j.vmaf_1_percent > 0:
                     lows = f" (1%: {j.vmaf_1_percent:.1f} | 0.1%: {j.vmaf_01_percent:.1f})"
@@ -171,11 +170,15 @@ class LogViewer(QDialog):
         tabs = QTabWidget()
         self.txt_enc = QTextEdit(); self.txt_enc.setReadOnly(True)
         self.txt_mux = QTextEdit(); self.txt_mux.setReadOnly(True)
+        self.txt_vmaf = QTextEdit(); self.txt_vmaf.setReadOnly(True) # <--- NEW TAB
+        
         self.txt_enc.setFont(QtGui.QFont("Courier", 9))
         self.txt_mux.setFont(QtGui.QFont("Courier", 9))
+        self.txt_vmaf.setFont(QtGui.QFont("Courier", 9))
         
         tabs.addTab(self.txt_enc, "Encoding Log")
         tabs.addTab(self.txt_mux, "Muxing Log")
+        tabs.addTab(self.txt_vmaf, "VMAF Log")
         layout.addWidget(tabs)
         
         btn = QPushButton("Refresh")
@@ -191,4 +194,10 @@ class LogViewer(QDialog):
             if self.job.mux_log.exists():
                 with open(self.job.mux_log, "r", encoding="utf-8", errors="replace") as f:
                     self.txt_mux.setPlainText(f.read())
+            # --- Load VMAF Log ---
+            if self.job.vmaf_log.exists():
+                with open(self.job.vmaf_log, "r", encoding="utf-8", errors="replace") as f:
+                    self.txt_vmaf.setPlainText(f.read())
+            else:
+                self.txt_vmaf.setPlainText(f"File not found: {self.job.vmaf_log}")
         except: pass

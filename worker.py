@@ -241,8 +241,12 @@ class Runner(QObject):
                 infile=abs_path,
                 out_mkv=self.out_dir / f"{base}-svt_av1.mkv",
                 tempdir=self.temp_dir / base,
+                
+                # --- LOG PATHS ---
                 term_log=LOG_DIR / f"{base}.term.log",
                 mux_log=LOG_DIR / f"{base}.mux.log",
+                vmaf_log=LOG_DIR / f"{base}-vmaf.json", 
+                
                 preset_name=preset_name,
                 total_frames=t_frames,
                 max_retries=self.config.get("max_retries", 2),
@@ -475,7 +479,7 @@ class Runner(QObject):
         self.job_updated.emit(job.idx)
         self._rebalance_affinity()
         
-        vmaf_json = job.tempdir / "vmaf.json"
+        vmaf_json = job.vmaf_log
         if vmaf_json.exists(): vmaf_json.unlink()
         
         try:
@@ -493,19 +497,15 @@ class Runner(QObject):
             phys_cores = (os.cpu_count() or 4) // 2
         threads = phys_cores
 
-        # --- FIX: ESCAPE PATH FOR FFMPEG FILTER ---
-        # FFmpeg filters use ":" as a separator. 
-        # A Windows path like "C:\temp" becomes "C" (option 1) and "\temp" (option 2) which breaks it.
-        # We must escape the ":" in the drive letter: "C\:/temp"
-        json_path_str = str(vmaf_json.resolve()).replace("\\", "/")
-        json_path_str = json_path_str.replace(":", "\\:")
+        # Path Sanitization
+        json_path_str = str(job.vmaf_log.resolve()).replace("\\", "/")
+        json_path_str = json_path_str.replace(":", "\\:") 
 
         cmd = [
             "ffmpeg", "-stats", 
             "-threads", str(threads), "-i", str(job.out_mkv), 
             "-threads", str(threads), "-i", str(job.infile),
             "-filter_complex_threads", str(threads),
-            # Use the properly escaped path here
             "-filter_complex", f"libvmaf=log_path={json_path_str}:log_fmt=json:n_threads={threads}:n_subsample=4",
             "-f", "null", "-"
         ]
@@ -559,7 +559,6 @@ class Runner(QObject):
                     if rc is not None:
                         if rc == 0:
                             self._finalize_mux(job) 
-                            # Check toggle before starting VMAF
                             if self.config.get("calc_vmaf", True):
                                 self._start_vmaf(job)
                             else:
@@ -657,46 +656,76 @@ class Runner(QObject):
                 self._fail_job(job, f"Finalize error: {e}")
 
     def _read_vmaf_score(self, job: Job):
-        vmaf_json = job.tempdir / "vmaf.json"
+        # Debug: Start
+        print(f"[DEBUG] Attempting to read VMAF from: {job.vmaf_log}")
         
-        # --- FIX: Wait a moment for OS to sync file ---
-        time.sleep(0.5)
-        
+        # We try 3 times to give OS time to flush
+        for attempt in range(3):
+            if job.vmaf_log.exists():
+                size = job.vmaf_log.stat().st_size
+                print(f"[DEBUG] File exists. Size: {size} bytes (Attempt {attempt+1})")
+                if size > 0:
+                    break
+            else:
+                print(f"[DEBUG] File does not exist yet (Attempt {attempt+1})")
+            time.sleep(1.0)
+            
         scores = []
-        if vmaf_json.exists():
+        if job.vmaf_log.exists():
+            # Method 1: Regex Scan (Most robust for truncated files)
             try:
-                # --- FIX: Scan text manually to extract scores even if JSON is incomplete ---
-                with open(vmaf_json, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(job.vmaf_log, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
+                    print(f"[DEBUG] Read {len(content)} chars from file.")
+                    
                     matches = re.findall(r'"vmaf":\s*([\d\.]+)', content)
                     if matches:
                         scores = [float(m) for m in matches]
+                        print(f"[DEBUG] Regex found {len(scores)} frame scores.")
+                    else:
+                        print("[DEBUG] Regex found 0 matches.")
             except Exception as e:
-                print(f"Error reading VMAF text: {e}")
+                print(f"[DEBUG] Error reading text content: {e}")
 
-        # Calculate Statistics from gathered scores
         if scores:
-            scores.sort()
-            count = len(scores)
-            if count > 0:
-                if job.vmaf_score == 0.0:
-                    job.vmaf_score = sum(scores) / count
+            # --- FIX: Filter out erroneous 0.0 scores ---
+            valid_scores = [s for s in scores if s > 0.01]
+            print(f"[DEBUG] Filtered {len(scores) - len(valid_scores)} zero-scores.")
+            
+            if valid_scores:
+                valid_scores.sort()
+                count = len(valid_scores)
                 
+                # Calc Mean if missing
+                if job.vmaf_score == 0.0:
+                    job.vmaf_score = sum(valid_scores) / count
+                    print(f"[DEBUG] Calculated Mean from frames: {job.vmaf_score}")
+                
+                # Calc Lows
                 idx_1 = max(0, int(count * 0.01))
                 idx_01 = max(0, int(count * 0.001))
-                job.vmaf_1_percent = scores[idx_1]
-                job.vmaf_01_percent = scores[idx_01]
+                job.vmaf_1_percent = valid_scores[idx_1]
+                job.vmaf_01_percent = valid_scores[idx_01]
+                print(f"[DEBUG] Calculated Lows: 1%={job.vmaf_1_percent}, 0.1%={job.vmaf_01_percent}")
+            else:
+                print("[DEBUG] No valid scores remaining after filtering.")
+        else:
+            print("[DEBUG] No scores extracted.")
 
-        # Final Fallback to LOG file for Mean score
+        # Fallback to log file for Mean score
         if job.vmaf_score == 0.0 and job.term_log.exists():
+            print(f"[DEBUG] Checking term log for fallback score: {job.term_log}")
             try:
                 with open(job.term_log, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
                     m = re.search(r"VMAF score:\s+(\d+(?:\.\d+)?)", content)
                     if m:
                         job.vmaf_score = float(m.group(1))
-            except:
-                pass
+                        print(f"[DEBUG] Found fallback score in log: {job.vmaf_score}")
+                    else:
+                        print("[DEBUG] No score found in term log.")
+            except Exception as e:
+                print(f"[DEBUG] Error reading term log: {e}")
 
     def _finalize_complete(self, job: Job):
         job.status = JobStatus.COMPLETED
