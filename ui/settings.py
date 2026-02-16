@@ -89,7 +89,6 @@ class SettingsDialog(QDialog):
         h3 = QHBoxLayout()
         h3.addWidget(QLabel("Chunk Method:"))
         self.chunk_combo = QComboBox()
-        # Changed to valid options, defaulting to select
         self.chunk_combo.addItems(["select", "hybrid", "vs_ffms2", "vs_lsmash"])
         h3.addWidget(self.chunk_combo)
         l.addLayout(h3)
@@ -100,6 +99,10 @@ class SettingsDialog(QDialog):
         w = QWidget(); l = QVBoxLayout(w)
         self.chk_resume = QCheckBox("Resume")
         self.chk_keep = QCheckBox("Keep intermediate")
+        
+        # --- NEW: VMAF Toggle ---
+        self.chk_vmaf = QCheckBox("Calculate VMAF Score (Slows down completion)")
+        self.chk_vmaf.setToolTip("Runs a quality check after encoding. Useful for benchmarking.")
         
         h = QHBoxLayout()
         h.addWidget(QLabel("Retries:"))
@@ -112,6 +115,7 @@ class SettingsDialog(QDialog):
         h2.addWidget(self.sp_disk)
         
         l.addWidget(self.chk_resume); l.addWidget(self.chk_keep)
+        l.addWidget(self.chk_vmaf) # Added here
         l.addLayout(h); l.addLayout(h2)
         l.addStretch()
         return w
@@ -136,6 +140,10 @@ class SettingsDialog(QDialog):
         self.chk_graph.setChecked(s.value("disable_graphs", False, type=bool))
         self.chk_resume.setChecked(s.value("resume", True, type=bool))
         self.chk_keep.setChecked(s.value("keep", True, type=bool))
+        
+        # Load VMAF setting (Default True)
+        self.chk_vmaf.setChecked(s.value("calc_vmaf", True, type=bool))
+        
         self.sp_retry.setValue(int(s.value("max_retries", 2)))
         self.sp_disk.setValue(int(s.value("disk_warn_gb", 50)))
 
@@ -152,6 +160,7 @@ class SettingsDialog(QDialog):
         s.setValue("disable_graphs", self.chk_graph.isChecked())
         s.setValue("resume", self.chk_resume.isChecked())
         s.setValue("keep", self.chk_keep.isChecked())
+        s.setValue("calc_vmaf", self.chk_vmaf.isChecked())
         s.setValue("max_retries", self.sp_retry.value())
         s.setValue("disk_warn_gb", self.sp_disk.value())
 
@@ -168,6 +177,7 @@ class SettingsDialog(QDialog):
             "disable_graphs": self.chk_graph.isChecked(),
             "resume": self.chk_resume.isChecked(),
             "keep": self.chk_keep.isChecked(),
+            "calc_vmaf": self.chk_vmaf.isChecked(), # <--- Exported
             "max_retries": self.sp_retry.value(),
             "disk_warn_gb": self.sp_disk.value(),
         }

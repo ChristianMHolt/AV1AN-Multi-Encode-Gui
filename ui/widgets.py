@@ -14,7 +14,6 @@ except ImportError:
 from config import DEFAULT_PRESETS
 from models import Job, JobStatus
 
-# --- Optional Plotting Imports ---
 try:
     import pyqtgraph as pg
     HAS_PYQTGRAPH = True
@@ -45,7 +44,6 @@ class JobTile(QFrame):
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(6)
         
-        # Header
         h = QHBoxLayout()
         self.title = QLabel(job.infile.name)
         self.title.setStyleSheet("font-weight: bold; font-size: 10pt;")
@@ -55,12 +53,10 @@ class JobTile(QFrame):
         h.addWidget(self.status)
         self.layout.addLayout(h)
         
-        # Info
         self.info = QLabel(f"Managed Auto-Scaling • {job.preset_name}")
         self.info.setStyleSheet("color: #aaa; font-size: 8pt;")
         self.layout.addWidget(self.info)
         
-        # Progress
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setStyleSheet("""
@@ -75,12 +71,10 @@ class JobTile(QFrame):
         """)
         self.layout.addWidget(self.bar)
         
-        # Stats
         self.stats = QLabel("—")
         self.stats.setStyleSheet("color: #bbb; font-size: 8pt;")
         self.layout.addWidget(self.stats)
         
-        # Graph
         if HAS_PYQTGRAPH and not disable_graphs:
             self.plot = pg.PlotWidget()
             self.plot.setBackground('#1a1a1a')
@@ -92,7 +86,6 @@ class JobTile(QFrame):
         else:
             self.plot = None
             
-        # Buttons
         btns = QHBoxLayout()
         self.btn_pause = QPushButton("Pause")
         self.btn_pause.setFixedWidth(80)
@@ -120,8 +113,6 @@ class JobTile(QFrame):
         self.bar.setFormat(f"{j.pct:.1f}%")
         self.status.setText(j.status.value)
         
-        # Buttons - FIXED LOGIC HERE
-        # We explicitly check "is not None" to ensure we get a boolean, not the Popen object
         can_pause = (j.status == JobStatus.RUNNING and j.proc is not None)
         can_resume = (j.status == JobStatus.PAUSED)
         
@@ -129,7 +120,6 @@ class JobTile(QFrame):
         self.btn_pause.setText("Resume" if j.status == JobStatus.PAUSED else "Pause")
         self.btn_rm.setEnabled(j.status in [JobStatus.QUEUED, JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED])
         
-        # Stats Text
         parts = []
         if j.status == JobStatus.RUNNING:
             parts.append(f"FPS: {j.current_fps:.1f} (avg: {j.avg_fps:.1f})")
@@ -139,20 +129,35 @@ class JobTile(QFrame):
                 else:
                     mins = j.eta_seconds / 60.0
                     parts.append(f"ETA: {mins:.1f}m")
+                    
         elif j.status == JobStatus.MUXING:
             parts.append("Muxing final file...")
+            
+        elif j.status == JobStatus.VMAF:
+            parts.append(f"VMAF Analysis: {j.current_fps:.1f} fps")
+            if j.eta_seconds:
+                if j.eta_seconds < 60:
+                    parts.append(f"ETA: {int(j.eta_seconds)}s")
+                else:
+                    mins = j.eta_seconds / 60.0
+                    parts.append(f"ETA: {mins:.1f}m")
+                    
         elif j.status == JobStatus.COMPLETED:
             parts.append("Done")
             if j.encoded_size > 0:
                 ratio = (1 - j.encoded_size / j.original_size) * 100
                 parts.append(f"Saved {ratio:.1f}%")
+            if j.vmaf_score > 0:
+                # --- SHOW VMAF SCORE & LOWS ---
+                lows = ""
+                if j.vmaf_1_percent > 0:
+                    lows = f" (1%: {j.vmaf_1_percent:.1f} | 0.1%: {j.vmaf_01_percent:.1f})"
+                parts.append(f"VMAF: {j.vmaf_score:.2f}{lows}")
         
         self.stats.setText(" • ".join(parts))
         
-        # Graph
         if self.plot and j.fps_hist:
             self.curve.setData(list(j.fps_hist))
-
 
 class LogViewer(QDialog):
     def __init__(self, job: Job, parent=None):
@@ -163,7 +168,6 @@ class LogViewer(QDialog):
         
         layout = QVBoxLayout(self)
         
-        # Tabs
         tabs = QTabWidget()
         self.txt_enc = QTextEdit(); self.txt_enc.setReadOnly(True)
         self.txt_mux = QTextEdit(); self.txt_mux.setReadOnly(True)

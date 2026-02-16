@@ -57,6 +57,9 @@ S_PER_FR_RE  = re.compile(r"([0-9]+(?:\.\d+)?)\s*s/fr", re.IGNORECASE)
 PCT_RE = re.compile(r"(\d+)\s*/\s*(\d+)", re.IGNORECASE)
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
-# --- NEW REGEX FOR CUSTOM RUST LOG ---
-# Matches: PROGRESS: 97.05% | Frames: 34973/36036 | Chunks: 311/347 | Speed: 1026.48 fps
+# AV1AN Progress
 AV1AN_PROGRESS_RE = re.compile(r"PROGRESS:\s+(\d+(?:\.\d+)?)%\s+\|\s+Frames:\s+(\d+)/(\d+)\s+\|\s+Chunks:\s+(\d+)/(\d+)\s+\|\s+Speed:\s+(\d+(?:\.\d+)?)\s+fps", re.IGNORECASE)
+
+# FFmpeg Progress (for VMAF)
+# Matches: frame=  123 fps= 24.5 ...
+FFMPEG_PROGRESS_RE = re.compile(r"frame=\s*(\d+).*?fps=\s*(\d+(?:\.\d+)?)", re.IGNORECASE)

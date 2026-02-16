@@ -12,6 +12,7 @@ class JobStatus(Enum):
     QUEUED = "Queued"
     RUNNING = "Running"
     MUXING = "Muxing"
+    VMAF = "VMAF"
     PAUSED = "Paused"
     COMPLETED = "Completed"
     FAILED = "Failed"
@@ -36,10 +37,11 @@ class Job:
     
     # Runtime State
     total_frames: int = 0
-    frames_done: int = 0  # <--- ADDED: Track specific frames for accurate ETA
+    frames_done: int = 0
     cpus: List[int] = field(default_factory=list)
     proc: Optional[subprocess.Popen] = None
     mux_proc: Optional[subprocess.Popen] = None
+    vmaf_proc: Optional[subprocess.Popen] = None
     pct: float = 0.0
     fps_hist: Deque[float] = field(default_factory=lambda: deque(maxlen=FPS_WINDOW))
     started_ts: Optional[float] = None
@@ -57,6 +59,11 @@ class Job:
     error_message: str = ""
     retry_count: int = 0
     max_retries: int = 2
+    
+    # VMAF Stats
+    vmaf_score: float = 0.0
+    vmaf_1_percent: float = 0.0   # <--- New
+    vmaf_01_percent: float = 0.0  # <--- New
     
     log_read_offset: int = 0
     
@@ -88,23 +95,15 @@ class Job:
     
     @property
     def eta_seconds(self) -> Optional[float]:
-        """
-        Calculates ETA based on Remaining Frames / Average FPS.
-        This is much more stable than (Elapsed / Pct) projection.
-        """
-        if self.status != JobStatus.RUNNING:
+        if self.status not in [JobStatus.RUNNING, JobStatus.VMAF]:
             return None
 
-        # Primary Method: Frame-based
         if self.total_frames > 0 and self.avg_fps > 0.1:
             remaining = self.total_frames - self.frames_done
             if remaining < 0: remaining = 0
             return remaining / self.avg_fps
 
-        # Fallback Method: Percentage based (if frame count is missing)
         if self.pct > 0 and self.avg_fps > 0:
-            # Simple projection: TotalTime = Elapsed / (Pct/100)
-            # Remaining = TotalTime - Elapsed
             elapsed = self.elapsed_time
             total_estimated = elapsed / (self.pct / 100.0)
             return max(0.0, total_estimated - elapsed)

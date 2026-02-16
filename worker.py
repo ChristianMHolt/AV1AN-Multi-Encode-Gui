@@ -19,11 +19,16 @@ try:
 except ImportError:
     from PyQt6.QtCore import QObject, pyqtSignal as Signal, QThread, QTimer
 
+# Attempt to import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 from config import (
     DEFAULT_PRESETS, MAX_JOBS_CAP, BLOCKED_CPUS, IS_WINDOWS,
-    STOP_GRACE_SEC, TERM_GRACE_SEC, IGNORE_FPS_LINE, FR_S_RE,
-    SPEED_FPS_RE, S_PER_FR_RE, PCT_RE, ANSI_RE, LOG_DIR, GUI_REFRESH_HZ,
-    DEFAULT_AV1AN_PATH, AV1AN_PROGRESS_RE
+    DEFAULT_AV1AN_PATH, AV1AN_PROGRESS_RE, FFMPEG_PROGRESS_RE,
+    LOG_DIR, GUI_REFRESH_HZ
 )
 from models import Job, JobStatus, CpuGroup
 
@@ -81,18 +86,11 @@ def calculate_dynamic_chunks(num_jobs: int) -> List[List[int]]:
     return chunks
 
 def calculate_optimal_workers(chunk_size: int, preset_workers: Any) -> Tuple[int, int]:
-    # If the preset explicitly says "use X workers", obey it.
     if isinstance(preset_workers, int) and preset_workers > 0:
         return (preset_workers, max(1, chunk_size // preset_workers))
-    
-    # FOR 7950X / HIGH CORE COUNT CPUS:
-    # We want to saturate the cores. 
-    # 8 Workers x 4 threads = 32 threads (100% utilization)
     if chunk_size >= 32:
         return 8, 4  
     elif chunk_size >= 16:
-        # If we have fewer logical cores available, we still push for 8 if possible, 
-        # but let's stick to 8 workers if the system reports enough threads.
         return 8, chunk_size // 8
     elif chunk_size >= 8:
         return 4, chunk_size // 4
@@ -102,24 +100,13 @@ def calculate_optimal_workers(chunk_size: int, preset_workers: Any) -> Tuple[int
 def _set_process_affinity(pid: int, cpus: List[int]) -> None:
     if not IS_WINDOWS or not cpus: return
     try:
-        import psutil
-        p = psutil.Process(pid)
-        p.cpu_affinity(cpus)
-        for child in p.children(recursive=True):
-            try: child.cpu_affinity(cpus)
-            except: pass
+        if psutil:
+            p = psutil.Process(pid)
+            p.cpu_affinity(cpus)
+            for child in p.children(recursive=True):
+                try: child.cpu_affinity(cpus)
+                except: pass
     except Exception: pass
-
-def _windows_ctrl_break(proc: subprocess.Popen) -> bool:
-    if not IS_WINDOWS: return False
-    try:
-        proc.send_signal(signal.CTRL_BREAK_EVENT)
-        return True
-    except Exception: return False
-
-def _safe_terminate(proc: subprocess.Popen):
-    try: proc.terminate()
-    except: pass
 
 def _safe_kill(proc: subprocess.Popen):
     try: proc.kill()
@@ -131,11 +118,9 @@ def on_rm_error(func, path, exc_info):
     except: pass
 
 def _try_import_psutil():
-    try: import psutil; return psutil
-    except ImportError: return None
+    return psutil
 
 def _suspend_tree(root_pid: int) -> bool:
-    psutil = _try_import_psutil()
     if not psutil: return False
     try:
         root = psutil.Process(root_pid)
@@ -146,7 +131,6 @@ def _suspend_tree(root_pid: int) -> bool:
     except: return False
 
 def _resume_tree(root_pid: int) -> bool:
-    psutil = _try_import_psutil()
     if not psutil: return False
     try:
         root = psutil.Process(root_pid)
@@ -164,7 +148,7 @@ class SystemMonitor(QThread):
     def __init__(self):
         super().__init__()
         self.running = True
-        self.psutil = _try_import_psutil()
+        self.psutil = psutil
         
     def run(self):
         while self.running:
@@ -211,9 +195,7 @@ class Runner(QObject):
         if svt_path.parent.exists():
             self.proc_env["PATH"] = str(svt_path.parent) + os.pathsep + self.proc_env.get("PATH", "")
         
-        # We prefer "ffms2" for Rust Av1an (native speed)
         self.chunk_method = "ffms2"
-        
         self.jobs: List[Job] = []
         self.queue: List[int] = []
         self.running: Dict[int, Job] = {}
@@ -233,7 +215,6 @@ class Runner(QObject):
             base = f.stem
             abs_path = f.resolve()
             
-            # --- Frame Counting ---
             t_frames = 0
             debug_log = [f"--- INIT DEBUG: {f.name} ---"]
             
@@ -267,14 +248,12 @@ class Runner(QObject):
                 max_retries=self.config.get("max_retries", 2),
             )
             
-            # Initialize cache variables for disk monitoring
             j.chunk_count_cache = 0
             j.log_file_handle = None 
 
             try: j.tempdir.mkdir(parents=True, exist_ok=True)
             except: pass
             
-            # Prepare log file immediately
             try:
                 j.log_file_handle = open(j.term_log, "w", encoding="utf-8")
                 j.log_file_handle.write("\n".join(debug_log) + "\n\n")
@@ -289,16 +268,13 @@ class Runner(QObject):
     def remove_job(self, job_idx: int):
         with self.run_lock:
             job = self.jobs[job_idx]
-            if job.status in [JobStatus.RUNNING, JobStatus.MUXING, JobStatus.PAUSED]:
+            if job.status in [JobStatus.RUNNING, JobStatus.MUXING, JobStatus.VMAF, JobStatus.PAUSED]:
                 return False
             if job_idx in self.queue: self.queue.remove(job_idx)
             job.status = JobStatus.CANCELLED
-            
-            # Close handle if exists
             if hasattr(job, 'log_file_handle') and job.log_file_handle:
                 try: job.log_file_handle.close()
                 except: pass
-
             self.job_updated.emit(job_idx)
             return True
 
@@ -307,21 +283,21 @@ class Runner(QObject):
         if job.status != JobStatus.FAILED: return False
         job.status = JobStatus.QUEUED
         job.pct = 0.0
+        job.vmaf_score = 0.0
+        job.vmaf_1_percent = 0.0
+        job.vmaf_01_percent = 0.0
         job.fps_hist.clear()
         job.error_message = ""
         job.proc = None
         job.started_ts = None
         job.completed_ts = None
         if job_idx not in self.queue: self.queue.append(job_idx)
-        
-        # Re-open log handle
         try:
             if hasattr(job, 'log_file_handle') and job.log_file_handle:
                 try: job.log_file_handle.close()
                 except: pass
             job.log_file_handle = open(job.term_log, "w", encoding="utf-8")
         except: pass
-
         self.job_updated.emit(job_idx)
         return True
 
@@ -338,51 +314,35 @@ class Runner(QObject):
             for job in self.running.values():
                 if job.proc and job.proc.poll() is None: procs.append(job.proc)
                 if job.mux_proc and job.mux_proc.poll() is None: procs.append(job.mux_proc)
-        
+                if job.vmaf_proc and job.vmaf_proc.poll() is None: procs.append(job.vmaf_proc)
         for p in procs: _safe_kill(p)
         self.shutdown_complete.emit()
 
     def toggle_pause(self, job_idx: int):
         with self.run_lock:
             job = self.jobs[job_idx]
-            
-            # Case 1: Pausing
             if job.status == JobStatus.RUNNING:
-                # We use _suspend_tree to pause the main process AND all subprocesses (av1an + workers)
                 if job.proc and _suspend_tree(job.proc.pid):
                     job.status = JobStatus.PAUSED
                     self.notify.emit(f"Paused {job.infile.name}")
                     self.job_updated.emit(job_idx)
-                    # Rebalance other jobs to take advantage of freed CPU resources
                     self._rebalance_affinity() 
-                else:
-                    self.notify.emit("Failed to suspend process (psutil error?)")
-
-            # Case 2: Resuming
             elif job.status == JobStatus.PAUSED:
                 if job.proc and _resume_tree(job.proc.pid):
                     job.status = JobStatus.RUNNING
                     self.notify.emit(f"Resumed {job.infile.name}")
                     self.job_updated.emit(job_idx)
-                    # Rebalance again to accommodate the resumed job
                     self._rebalance_affinity()
-                else:
-                    self.notify.emit("Failed to resume process")
 
     def _build_av1an_args(self, job: Job, assigned_chunk: List[int]) -> List[str]:
         preset = DEFAULT_PRESETS.get(job.preset_name, DEFAULT_PRESETS["High Quality"])
         chunk_size = len(assigned_chunk)
         workers, threads = calculate_optimal_workers(chunk_size, preset.get("workers", "auto"))
-        
         svt_opts = job.custom_svt_opts or preset["svt_opts"]
         svt_cli = _strip_lp(svt_opts)
         svt_cli = shlex.join(shlex.split(svt_cli) + ["--lp", str(threads)])
-        
-        # --- PATH SANITIZATION: Forces forward slashes for ALL paths ---
         def to_posix(p):
             return str(p).replace("\\", "/")
-
-        # RUST ARGS
         args = [
             str(DEFAULT_AV1AN_PATH),
             "-i", to_posix(job.infile),          
@@ -395,17 +355,14 @@ class Runner(QObject):
             "--pix-format", "yuv420p10le",  
             "--concat", "mkvmerge"
         ]
-        
         if self.config.get("resume", True): args.append("-r")
         if self.config.get("keep", True): args.append("--keep")
         return args
 
     def _rebalance_affinity(self):
         if not self.running: return
-        # Only count jobs that are actively RUNNING (not PAUSED)
         active_jobs = [j for j in self.running.values() if j.status == JobStatus.RUNNING and j.proc]
         if not active_jobs: return
-        
         chunks = calculate_dynamic_chunks(len(active_jobs))
         for i, job in enumerate(active_jobs):
             if i < len(chunks):
@@ -416,15 +373,12 @@ class Runner(QObject):
     def _start_next_if_possible(self):
         if self._closing: return
         with self.run_lock:
-            # Note: Paused jobs still count towards the MAX_JOBS_CAP to prevent RAM exhaustion
             active_count = len(self.queue) + len(self.running)
             dynamic_limit = max(1, min(active_count, MAX_JOBS_CAP))
-            
             started_new = False
             while len(self.running) < dynamic_limit and self.queue:
                 idx = self.queue.pop(0)
                 job = self.jobs[idx]
-                
                 temp_chunks = calculate_dynamic_chunks(len(self.running) + 1)
                 my_chunk = temp_chunks[-1]
                 args = self._build_av1an_args(job, my_chunk)
@@ -436,6 +390,7 @@ class Runner(QObject):
                 job.status = JobStatus.RUNNING
                 job.started_ts = time.time()
                 job.completed_ts = None
+                job.vmaf_score = 0.0
                 
                 lock_file = job.tempdir / "lock"
                 try:
@@ -443,7 +398,6 @@ class Runner(QObject):
                 except: pass
                 
                 self.notify.emit(f"Starting {job.infile.name}")
-                
                 try:
                     startupinfo = None
                     if IS_WINDOWS:
@@ -451,9 +405,6 @@ class Runner(QObject):
                         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                         startupinfo.wShowWindow = subprocess.SW_HIDE
 
-                    # --- KEY FIX: DIRECT FILE LOGGING ---
-                    # We pipe stdout/stderr directly to the file handle.
-                    # This prevents the 4KB pipe buffer from filling up and stalling Rust.
                     job.proc = subprocess.Popen(
                         args,
                         stdout=job.log_file_handle,
@@ -462,7 +413,6 @@ class Runner(QObject):
                         startupinfo=startupinfo,
                         env=self.proc_env,
                     )
-                    
                     self.running[idx] = job
                     started_new = True
                 except Exception as e:
@@ -479,11 +429,8 @@ class Runner(QObject):
         self.job_updated.emit(job.idx)
         self._rebalance_affinity()
         
-        # Rust Av1an usually names output exactly as requested
         enc_source = job.out_mkv
-            
         if not enc_source.exists():
-             # Fallback check
              if (job.tempdir / "encode").exists():
                  for f in (job.tempdir / "encode").glob("*.mkv"):
                      enc_source = f
@@ -501,7 +448,6 @@ class Runner(QObject):
             "--no-audio", "--no-subtitles", "--no-chapters", str(enc_source)
         ]
         
-        # We can log this to the main log file too since it's short
         try:
              job.log_file_handle.write(f"\n=== MUXING ===\n{shlex.join(cmd)}\n")
              job.log_file_handle.flush()
@@ -522,6 +468,68 @@ class Runner(QObject):
             job.status = JobStatus.FAILED
             job.error_message = f"Mux error: {e}"
 
+    def _start_vmaf(self, job: Job):
+        job.status = JobStatus.VMAF
+        job.fps_hist.clear()
+        job.started_ts = time.time()
+        self.job_updated.emit(job.idx)
+        self._rebalance_affinity()
+        
+        vmaf_json = job.tempdir / "vmaf.json"
+        if vmaf_json.exists(): vmaf_json.unlink()
+        
+        try:
+            if not job.log_file_handle or job.log_file_handle.closed:
+                job.log_file_handle = open(job.term_log, "a", encoding="utf-8")
+                job.log_read_offset = job.log_file_handle.tell()
+        except Exception as e:
+            print(f"Failed to reopen log for VMAF: {e}")
+            self._finalize(job)
+            return
+
+        if psutil:
+            phys_cores = psutil.cpu_count(logical=False) or 16
+        else:
+            phys_cores = (os.cpu_count() or 4) // 2
+        threads = phys_cores
+
+        # --- FIX: ESCAPE PATH FOR FFMPEG FILTER ---
+        # FFmpeg filters use ":" as a separator. 
+        # A Windows path like "C:\temp" becomes "C" (option 1) and "\temp" (option 2) which breaks it.
+        # We must escape the ":" in the drive letter: "C\:/temp"
+        json_path_str = str(vmaf_json.resolve()).replace("\\", "/")
+        json_path_str = json_path_str.replace(":", "\\:")
+
+        cmd = [
+            "ffmpeg", "-stats", 
+            "-threads", str(threads), "-i", str(job.out_mkv), 
+            "-threads", str(threads), "-i", str(job.infile),
+            "-filter_complex_threads", str(threads),
+            # Use the properly escaped path here
+            "-filter_complex", f"libvmaf=log_path={json_path_str}:log_fmt=json:n_threads={threads}:n_subsample=4",
+            "-f", "null", "-"
+        ]
+
+        try:
+             job.log_file_handle.write(f"\n=== VMAF CALCULATION (Threads={threads}) ===\n{shlex.join(cmd)}\n")
+             job.log_file_handle.flush()
+        except: pass
+
+        try:
+            startupinfo = None
+            if IS_WINDOWS:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+            
+            job.vmaf_proc = subprocess.Popen(
+                cmd, stdout=job.log_file_handle, stderr=job.log_file_handle,
+                text=True, startupinfo=startupinfo, env=self.proc_env
+            )
+        except Exception as e:
+            print(f"VMAF Start failed: {e}")
+            self._finalize(job)
+
     def _tick(self):
         self._start_next_if_possible()
         finished = []
@@ -530,18 +538,13 @@ class Runner(QObject):
         with self.run_lock:
             for idx, job in list(self.running.items()):
                 
-                # --- DISK MONITORING ---
-                # Since we aren't reading stdout (it goes to file), we check disk for progress
                 if job.status == JobStatus.RUNNING:
                     self._update_progress_from_disk(job)
-
                     if job.proc:
                         rc = job.proc.poll()
                         if rc is not None:
-                            # Process finished
                             try: job.log_file_handle.close()
                             except: pass
-                            
                             if rc == 0:
                                 self._start_muxing(job)
                                 rebalance = True
@@ -554,10 +557,30 @@ class Runner(QObject):
                 elif job.status == JobStatus.MUXING and job.mux_proc:
                     rc = job.mux_proc.poll()
                     if rc is not None:
-                        out, _ = job.mux_proc.communicate()
-                        if rc == 0: self._finalize(job)
-                        else: self._fail_job(job, f"Mux RC={rc}")
-                        finished.append(idx)
+                        if rc == 0:
+                            self._finalize_mux(job) 
+                            # Check toggle before starting VMAF
+                            if self.config.get("calc_vmaf", True):
+                                self._start_vmaf(job)
+                            else:
+                                self._finalize_complete(job)
+                                finished.append(idx)
+                        else:
+                            self._fail_job(job, f"Mux RC={rc}")
+                            finished.append(idx)
+
+                elif job.status == JobStatus.VMAF:
+                    self._update_progress_from_disk(job) 
+                    if job.vmaf_proc:
+                        rc = job.vmaf_proc.poll()
+                        if rc is not None:
+                            try: job.log_file_handle.close()
+                            except: pass
+                            
+                            if rc == 0:
+                                self._read_vmaf_score(job)
+                            self._finalize_complete(job)
+                            finished.append(idx)
                 
                 self.job_updated.emit(idx)
                         
@@ -576,44 +599,41 @@ class Runner(QObject):
                  self.all_jobs_completed.emit()
 
     def _update_progress_from_disk(self, job: Job):
-        # 1. Try reading the log file for real-time stats
         if job.term_log.exists():
             try:
-                # Open in read mode with shared access (standard in Python)
                 with open(job.term_log, 'r', encoding='utf-8', errors='replace') as f:
-                    # Seek to where we last read
                     f.seek(job.log_read_offset)
                     new_data = f.read()
-                    
                     if new_data:
                         job.log_read_offset = f.tell()
-                        
-                        # Process all new lines
+                        regex = AV1AN_PROGRESS_RE if job.status == JobStatus.RUNNING else FFMPEG_PROGRESS_RE
                         for line in new_data.splitlines():
-                            m = AV1AN_PROGRESS_RE.search(line)
+                            m = regex.search(line)
                             if m:
-                                # Parse groups: 1=Pct, 2=Done, 3=Total, 4=ChunksDone, 5=ChunksTot, 6=FPS
                                 try:
-                                    pct_val = float(m.group(1))
-                                    frames_done = int(m.group(2))
-                                    frames_total = int(m.group(3))
-                                    fps_val = float(m.group(6))
-                                    
-                                    # Update Job
-                                    job.pct = pct_val
-                                    job.frames_done = frames_done # <--- ADDED for accurate ETA
-                                    job.total_frames = frames_total
-                                    job.ema_fps = fps_val
-                                    job.fps_hist.append(fps_val)
+                                    if job.status == JobStatus.RUNNING:
+                                        pct_val = float(m.group(1))
+                                        frames_done = int(m.group(2))
+                                        frames_total = int(m.group(3))
+                                        fps_val = float(m.group(6))
+                                        job.pct = pct_val
+                                        job.frames_done = frames_done
+                                        job.total_frames = frames_total
+                                        job.ema_fps = fps_val
+                                        job.fps_hist.append(fps_val)
+                                    elif job.status == JobStatus.VMAF:
+                                        frames_done = int(m.group(1))
+                                        fps_val = float(m.group(2))
+                                        job.frames_done = frames_done
+                                        job.ema_fps = fps_val
+                                        job.fps_hist.append(fps_val)
+                                        if job.total_frames > 0:
+                                            job.pct = (frames_done / job.total_frames) * 100.0
                                 except ValueError:
                                     pass
             except Exception:
-                # If file is locked or busy, we just skip this tick
                 pass
-
-        # 2. Fallback / Chunk counting (for initialization or if log is empty)
-        # We still check chunks.json to know the total chunks for debugging/start up
-        if job.chunk_count_cache == 0:
+        if job.status == JobStatus.RUNNING and job.chunk_count_cache == 0:
             chunks_file = job.tempdir / "chunks.json"
             if chunks_file.exists():
                 try:
@@ -626,27 +646,72 @@ class Runner(QObject):
         total = sum(j.fps_hist[-1] for j in self.jobs if j.status == JobStatus.RUNNING and j.fps_hist)
         self.total_fps_changed.emit(total)
 
-    def _finalize(self, job: Job):
+    def _finalize_mux(self, job: Job):
         remux_tmp = job.out_mkv.with_suffix(".remux.mkv")
         if remux_tmp.exists():
             try:
                 if job.out_mkv.exists(): job.out_mkv.unlink()
                 os.replace(remux_tmp, job.out_mkv)
                 job.encoded_size = job.out_mkv.stat().st_size
-                job.status = JobStatus.COMPLETED
-                job.completed_ts = time.time()
-                if self.config.get("auto_cleanup", True):
-                    shutil.rmtree(job.tempdir, onerror=on_rm_error)
             except Exception as e:
                 self._fail_job(job, f"Finalize error: {e}")
-        else:
-            self._fail_job(job, "Mux output missing")
+
+    def _read_vmaf_score(self, job: Job):
+        vmaf_json = job.tempdir / "vmaf.json"
+        
+        # --- FIX: Wait a moment for OS to sync file ---
+        time.sleep(0.5)
+        
+        scores = []
+        if vmaf_json.exists():
+            try:
+                # --- FIX: Scan text manually to extract scores even if JSON is incomplete ---
+                with open(vmaf_json, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    matches = re.findall(r'"vmaf":\s*([\d\.]+)', content)
+                    if matches:
+                        scores = [float(m) for m in matches]
+            except Exception as e:
+                print(f"Error reading VMAF text: {e}")
+
+        # Calculate Statistics from gathered scores
+        if scores:
+            scores.sort()
+            count = len(scores)
+            if count > 0:
+                if job.vmaf_score == 0.0:
+                    job.vmaf_score = sum(scores) / count
+                
+                idx_1 = max(0, int(count * 0.01))
+                idx_01 = max(0, int(count * 0.001))
+                job.vmaf_1_percent = scores[idx_1]
+                job.vmaf_01_percent = scores[idx_01]
+
+        # Final Fallback to LOG file for Mean score
+        if job.vmaf_score == 0.0 and job.term_log.exists():
+            try:
+                with open(job.term_log, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                    m = re.search(r"VMAF score:\s+(\d+(?:\.\d+)?)", content)
+                    if m:
+                        job.vmaf_score = float(m.group(1))
+            except:
+                pass
+
+    def _finalize_complete(self, job: Job):
+        job.status = JobStatus.COMPLETED
+        job.completed_ts = time.time()
+        if self.config.get("auto_cleanup", True):
+            shutil.rmtree(job.tempdir, onerror=on_rm_error)
+
+    def _finalize(self, job: Job):
+        self._finalize_mux(job)
+        self._finalize_complete(job)
 
     def _fail_job(self, job: Job, msg: str):
         if hasattr(job, 'log_file_handle') and job.log_file_handle:
              try: job.log_file_handle.close()
              except: pass
-             
         if job.retry_count < job.max_retries:
             job.retry_count += 1
             self.notify.emit(f"Retrying {job.infile.name} ({job.retry_count})")
@@ -658,7 +723,6 @@ class Runner(QObject):
         job.completed_ts = time.time()
 
     def _write_log(self, path: Path, text: str):
-        # We don't really use this anymore since we write direct to file handle
         pass
 
     def _find_encoded_video(self, job: Job) -> Optional[Path]:
