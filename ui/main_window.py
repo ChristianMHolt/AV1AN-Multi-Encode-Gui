@@ -17,7 +17,7 @@ except ImportError:
                                  QSystemTrayIcon, QMenu, QApplication)
     from PyQt6.QtCore import pyqtSlot as Slot
 
-from config import DEFAULT_PRESETS, INPUT_GLOBS, IS_WINDOWS, DEFAULT_OUT_DIR
+from config import DEFAULT_PRESETS, INPUT_GLOBS, IS_WINDOWS, DEFAULT_OUT_DIR, INPUT_DIR
 from worker import Runner, SystemMonitor, get_missing_tools, format_size
 from models import JobStatus
 from .widgets import JobTile, LogViewer
@@ -140,11 +140,13 @@ class MainWindow(QMainWindow):
 
     def load_initial(self):
         files = []
-        for g in INPUT_GLOBS: files.extend(Path.cwd().glob(g))
+        if not INPUT_DIR.exists():
+            INPUT_DIR.mkdir(parents=True, exist_ok=True)
+        for g in INPUT_GLOBS: files.extend(INPUT_DIR.glob(g))
         if files: self.add_to_runner(files)
 
     def add_files_dlg(self):
-        fs, _ = QFileDialog.getOpenFileNames(self, "Add Files", "", "Video (*.mkv *.mp4 *.avi *.ts *.webm);;All (*)")
+        fs, _ = QFileDialog.getOpenFileNames(self, "Add Files", str(INPUT_DIR), "Video (*.mkv *.mp4 *.avi *.ts *.webm);;All (*)")
         if fs: self.add_to_runner([Path(f) for f in fs])
 
     def add_to_runner(self, paths):
