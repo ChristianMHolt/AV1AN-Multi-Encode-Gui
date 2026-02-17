@@ -497,9 +497,10 @@ class Runner(QObject):
             phys_cores = (os.cpu_count() or 4) // 2
         threads = phys_cores
 
-        # Path Sanitization
+        # Path Sanitization for FFmpeg filtergraph
         json_path_str = str(job.vmaf_log.resolve()).replace("\\", "/")
-        json_path_str = json_path_str.replace(":", "\\:") 
+        for char in r":,[]=' ":
+            json_path_str = json_path_str.replace(char, f"\\{char}")
 
         cmd = [
             "ffmpeg", "-stats", 
@@ -578,7 +579,9 @@ class Runner(QObject):
                             
                             if rc == 0:
                                 self._read_vmaf_score(job)
-                            self._finalize_complete(job)
+                                self._finalize_complete(job)
+                            else:
+                                self._fail_job(job, f"VMAF RC={rc}")
                             finished.append(idx)
                 
                 self.job_updated.emit(idx)
