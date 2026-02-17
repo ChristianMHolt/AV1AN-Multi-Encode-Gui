@@ -20,6 +20,7 @@ BLOCKED_CPUS = [0, 16]
 # FAST METHOD (Rust handles this natively)
 USE_CHUNK_METHOD = "ffms2"
 
+INPUT_DIR = Path.cwd() / "input"
 INPUT_GLOBS = ["*.mkv", "*.mp4", "*.mov", "*.avi", "*.m2ts", "*.ts", "*.webm"]
 FPS_WINDOW = 60
 GUI_REFRESH_HZ = 8
