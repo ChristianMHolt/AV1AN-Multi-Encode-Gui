@@ -6,8 +6,8 @@ import platform
 IS_WINDOWS = (os.name == "nt") or (platform.system().lower() == "windows")
 
 # --- POINT TO THE RUST EXE ---
-DEFAULT_AV1AN_PATH = r"C:\7950xGemini-Enc\.venv\Scripts\av1an.exe" 
-DEFAULT_SVT_PATH = r"C:\7950xGUIEncoder\svt-av1-psyex\Bin\Release\SvtAv1EncApp.exe"
+DEFAULT_AV1AN_PATH = r"C:\7950xGemini-Enc\src\av1an.exe" 
+DEFAULT_SVT_PATH = r"C:\7950xGemini-Enc\src\SvtAv1EncApp.exe"
 
 DEFAULT_TEMP_DIR = r"C:\7950xGemini-Enc\temp"
 DEFAULT_OUT_DIR = Path(r"E:\Temp\AV1AN-Output")
