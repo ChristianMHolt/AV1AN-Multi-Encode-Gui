@@ -1,5 +1,6 @@
 import os
 import sys
+import datetime
 import shutil
 import signal
 import subprocess
@@ -346,8 +347,12 @@ class Runner(QObject):
         svt_cli = shlex.join(shlex.split(svt_cli) + ["--lp", str(threads)])
         def to_posix(p):
             return str(p).replace("\\", "/")
+
+        log_file = LOG_DIR / f"av1an.log.{datetime.date.today()}"
+
         args = [
             str(DEFAULT_AV1AN_PATH),
+            "--log-file", to_posix(log_file),
             "-i", to_posix(job.infile),          
             "--temp", to_posix(job.tempdir),
             "-o", to_posix(job.out_mkv),         
@@ -415,6 +420,7 @@ class Runner(QObject):
                         text=True,
                         startupinfo=startupinfo,
                         env=self.proc_env,
+                        cwd=LOG_DIR,
                     )
                     self.running[idx] = job
                     started_new = True
