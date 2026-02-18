@@ -54,7 +54,8 @@ class JobTile(QFrame):
         h.addWidget(self.status)
         self.layout.addLayout(h)
         
-        self.info = QLabel(f"Managed Auto-Scaling • {job.preset_name}")
+        self.base_info_text = f"Managed Auto-Scaling • {job.preset_name}"
+        self.info = QLabel(self.base_info_text)
         self.info.setStyleSheet("color: #aaa; font-size: 8pt;")
         self.layout.addWidget(self.info)
         
@@ -71,10 +72,6 @@ class JobTile(QFrame):
             }
         """)
         self.layout.addWidget(self.bar)
-        
-        self.stats = QLabel("—")
-        self.stats.setStyleSheet("color: #bbb; font-size: 8pt;")
-        self.layout.addWidget(self.stats)
         
         if HAS_PYQTGRAPH and not disable_graphs:
             self.plot = pg.PlotWidget()
@@ -158,7 +155,12 @@ class JobTile(QFrame):
                     lows = f" (1%: {j.vmaf_1_percent:.1f} | 0.1%: {j.vmaf_01_percent:.1f})"
                 parts.append(f"VMAF: {j.vmaf_score:.2f}{lows}")
         
-        self.stats.setText(" • ".join(parts))
+        stats_text = " • ".join(parts)
+
+        if stats_text:
+            self.info.setText(f"{self.base_info_text} : {stats_text}")
+        else:
+            self.info.setText(self.base_info_text)
         
         if self.plot and j.fps_hist:
             self.curve.setData(list(j.fps_hist))
