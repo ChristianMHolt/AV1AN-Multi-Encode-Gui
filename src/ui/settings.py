@@ -11,7 +11,7 @@ except ImportError:
     from PyQt6.QtCore import QSettings
 
 from config import (
-    DEFAULT_OUT_DIR, DEFAULT_SVT_PATH, DEFAULT_TEMP_DIR, USE_CHUNK_METHOD
+    DEFAULT_OUT_DIR, DEFAULT_IN_DIR, DEFAULT_SVT_PATH, DEFAULT_TEMP_DIR, USE_CHUNK_METHOD
 )
 
 class SettingsDialog(QDialog):
@@ -42,15 +42,27 @@ class SettingsDialog(QDialog):
     def _gen_tab(self):
         w = QWidget(); l = QVBoxLayout(w)
         
-        g = QGroupBox("Output")
+        g = QGroupBox("Directories")
         gl = QVBoxLayout(g)
+
+        # Input
+        h_in = QHBoxLayout()
+        h_in.addWidget(QLabel("Input Dir:"))
+        self.in_edit = QLineEdit()
+        h_in.addWidget(self.in_edit)
+        btn_in = QPushButton("..."); btn_in.clicked.connect(lambda: self._browse(self.in_edit))
+        h_in.addWidget(btn_in)
+        gl.addLayout(h_in)
+
+        # Output
         h = QHBoxLayout()
-        h.addWidget(QLabel("Dir:"))
+        h.addWidget(QLabel("Output Dir:"))
         self.out_edit = QLineEdit()
         h.addWidget(self.out_edit)
         btn = QPushButton("..."); btn.clicked.connect(lambda: self._browse(self.out_edit))
         h.addWidget(btn)
         gl.addLayout(h)
+
         self.chk_clean = QCheckBox("Auto cleanup temp")
         gl.addWidget(self.chk_clean)
         l.addWidget(g)
@@ -129,6 +141,7 @@ class SettingsDialog(QDialog):
 
     def load(self):
         s = self.settings
+        self.in_edit.setText(s.value("input_dir", str(DEFAULT_IN_DIR)))
         self.out_edit.setText(s.value("output_dir", str(DEFAULT_OUT_DIR)))
         self.svt_edit.setText(s.value("svt_path", DEFAULT_SVT_PATH))
         self.tmp_edit.setText(s.value("temp_dir", DEFAULT_TEMP_DIR))
@@ -149,6 +162,7 @@ class SettingsDialog(QDialog):
 
     def save_settings(self):
         s = self.settings
+        s.setValue("input_dir", self.in_edit.text())
         s.setValue("output_dir", self.out_edit.text())
         s.setValue("svt_path", self.svt_edit.text())
         s.setValue("temp_dir", self.tmp_edit.text())
@@ -166,6 +180,7 @@ class SettingsDialog(QDialog):
 
     def get_config(self):
         return {
+            "input_dir": self.in_edit.text(),
             "output_dir": self.out_edit.text(),
             "svt_path": self.svt_edit.text(),
             "temp_dir": self.tmp_edit.text(),

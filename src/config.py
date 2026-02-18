@@ -10,10 +10,11 @@ DEFAULT_AV1AN_PATH = r"C:\7950xGemini-Enc\src\av1an.exe"
 DEFAULT_SVT_PATH = r"C:\7950xGemini-Enc\src\SvtAv1EncApp.exe"
 
 DEFAULT_TEMP_DIR = r"C:\7950xGemini-Enc\temp"
-DEFAULT_OUT_DIR = Path(r"E:\Temp\AV1AN-Output")
-
 # Calculate the project root (one level up from this file's directory "src")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+DEFAULT_OUT_DIR = PROJECT_ROOT / "output"
+DEFAULT_IN_DIR = PROJECT_ROOT / "input"
 
 LOG_DIR = (PROJECT_ROOT / ".log").resolve()
 
@@ -24,7 +25,7 @@ BLOCKED_CPUS = [0, 16]
 # FAST METHOD (Rust handles this natively)
 USE_CHUNK_METHOD = "ffms2"
 
-INPUT_DIR = PROJECT_ROOT / "input"
+INPUT_DIR = DEFAULT_IN_DIR
 INPUT_GLOBS = ["*.mkv", "*.mp4", "*.mov", "*.avi", "*.m2ts", "*.ts", "*.webm"]
 FPS_WINDOW = 60
 GUI_REFRESH_HZ = 8

@@ -208,6 +208,13 @@ class Runner(QObject):
         self._closing = False
         self._next_job_idx = 0
 
+    def update_config(self, config: Dict[str, Any]):
+        self.config = config
+        self.out_dir = Path(config["output_dir"])
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = Path(config["temp_dir"])
+        os.makedirs(self.temp_dir, exist_ok=True)
+
     def add_files(self, files: List[Path], preset_name: str = "High Quality"):
         new_jobs = []
         for f in files:
