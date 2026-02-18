@@ -1,10 +1,10 @@
 import sys
 import signal
-from PySide6.QtWidgets import QApplication
+from ui.qt import QtWidgets
 from ui.main_window import MainWindow
 
 def main():
-    app = QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("AV1 Encoder Pro")
     app.setOrganizationName("AV1Runner")
     

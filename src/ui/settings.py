@@ -1,78 +1,69 @@
 import os
-try:
-    from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                                   QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit, 
-                                   QCheckBox, QSpinBox, QComboBox, QFileDialog)
-    from PySide6.QtCore import QSettings
-except ImportError:
-    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                                 QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit, 
-                                 QCheckBox, QSpinBox, QComboBox, QFileDialog)
-    from PyQt6.QtCore import QSettings
+from .qt import QtWidgets, QSettings
 
 from config import (
     DEFAULT_OUT_DIR, DEFAULT_IN_DIR, DEFAULT_SVT_PATH, DEFAULT_TEMP_DIR, USE_CHUNK_METHOD
 )
 
-class SettingsDialog(QDialog):
+class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.resize(600, 450)
         self.settings = QSettings("AV1Runner", "EncoderPro")
         
-        layout = QVBoxLayout(self)
-        tabs = QTabWidget()
+        layout = QtWidgets.QVBoxLayout(self)
+        tabs = QtWidgets.QTabWidget()
         
         tabs.addTab(self._gen_tab(), "General")
         tabs.addTab(self._enc_tab(), "Encoder")
         tabs.addTab(self._adv_tab(), "Advanced")
         layout.addWidget(tabs)
         
-        btns = QHBoxLayout()
-        bsave = QPushButton("Save")
+        btns = QtWidgets.QHBoxLayout()
+        bsave = QtWidgets.QPushButton("Save")
         bsave.clicked.connect(self.accept)
         btns.addStretch()
         btns.addWidget(bsave)
-        btns.addWidget(QPushButton("Cancel", clicked=self.reject))
+        btns.addWidget(QtWidgets.QPushButton("Cancel", clicked=self.reject))
         layout.addLayout(btns)
         
         self.load()
         
     def _gen_tab(self):
-        w = QWidget(); l = QVBoxLayout(w)
+        w = QtWidgets.QWidget(); l = QtWidgets.QVBoxLayout(w)
         
-        g = QGroupBox("Directories")
-        gl = QVBoxLayout(g)
+        g = QtWidgets.QGroupBox("Directories")
+        gl = QtWidgets.QVBoxLayout(g)
 
         # Input
-        h_in = QHBoxLayout()
-        h_in.addWidget(QLabel("Input Dir:"))
-        self.in_edit = QLineEdit()
+        h_in = QtWidgets.QHBoxLayout()
+        h_in.addWidget(QtWidgets.QLabel("Input Dir:"))
+        self.in_edit = QtWidgets.QLineEdit()
         h_in.addWidget(self.in_edit)
-        btn_in = QPushButton("..."); btn_in.clicked.connect(lambda: self._browse(self.in_edit))
+        btn_in = QtWidgets.QPushButton("..."); btn_in.clicked.connect(lambda: self._browse(self.in_edit))
         h_in.addWidget(btn_in)
         gl.addLayout(h_in)
 
         # Output
-        h = QHBoxLayout()
-        h.addWidget(QLabel("Output Dir:"))
-        self.out_edit = QLineEdit()
+        h = QtWidgets.QHBoxLayout()
+        h.addWidget(QtWidgets.QLabel("Output Dir:"))
+        self.out_edit = QtWidgets.QLineEdit()
         h.addWidget(self.out_edit)
-        btn = QPushButton("..."); btn.clicked.connect(lambda: self._browse(self.out_edit))
+        btn = QtWidgets.QPushButton("..."); btn.clicked.connect(lambda: self._browse(self.out_edit))
         h.addWidget(btn)
         gl.addLayout(h)
 
-        self.chk_clean = QCheckBox("Auto cleanup temp")
+        self.chk_clean = QtWidgets.QCheckBox("Auto cleanup temp")
         gl.addWidget(self.chk_clean)
         l.addWidget(g)
         
-        g2 = QGroupBox("Notifications")
-        gl2 = QVBoxLayout(g2)
-        self.chk_done = QCheckBox("Notify on Complete")
-        self.chk_err = QCheckBox("Notify on Error")
-        self.chk_snd = QCheckBox("Play Sound")
-        self.chk_graph = QCheckBox("Disable Graphs")
+        g2 = QtWidgets.QGroupBox("Notifications")
+        gl2 = QtWidgets.QVBoxLayout(g2)
+        self.chk_done = QtWidgets.QCheckBox("Notify on Complete")
+        self.chk_err = QtWidgets.QCheckBox("Notify on Error")
+        self.chk_snd = QtWidgets.QCheckBox("Play Sound")
+        self.chk_graph = QtWidgets.QCheckBox("Disable Graphs")
         gl2.addWidget(self.chk_done); gl2.addWidget(self.chk_err)
         gl2.addWidget(self.chk_snd); gl2.addWidget(self.chk_graph)
         l.addWidget(g2)
@@ -80,27 +71,27 @@ class SettingsDialog(QDialog):
         return w
 
     def _enc_tab(self):
-        w = QWidget(); l = QVBoxLayout(w)
+        w = QtWidgets.QWidget(); l = QtWidgets.QVBoxLayout(w)
         
-        h = QHBoxLayout()
-        h.addWidget(QLabel("SVT Path:"))
-        self.svt_edit = QLineEdit()
+        h = QtWidgets.QHBoxLayout()
+        h.addWidget(QtWidgets.QLabel("SVT Path:"))
+        self.svt_edit = QtWidgets.QLineEdit()
         h.addWidget(self.svt_edit)
-        btn = QPushButton("..."); btn.clicked.connect(lambda: self._browse(self.svt_edit, file=True))
+        btn = QtWidgets.QPushButton("..."); btn.clicked.connect(lambda: self._browse(self.svt_edit, file=True))
         h.addWidget(btn)
         l.addLayout(h)
         
-        h2 = QHBoxLayout()
-        h2.addWidget(QLabel("Temp Dir:"))
-        self.tmp_edit = QLineEdit()
+        h2 = QtWidgets.QHBoxLayout()
+        h2.addWidget(QtWidgets.QLabel("Temp Dir:"))
+        self.tmp_edit = QtWidgets.QLineEdit()
         h2.addWidget(self.tmp_edit)
-        btn2 = QPushButton("..."); btn2.clicked.connect(lambda: self._browse(self.tmp_edit))
+        btn2 = QtWidgets.QPushButton("..."); btn2.clicked.connect(lambda: self._browse(self.tmp_edit))
         h2.addWidget(btn2)
         l.addLayout(h2)
         
-        h3 = QHBoxLayout()
-        h3.addWidget(QLabel("Chunk Method:"))
-        self.chunk_combo = QComboBox()
+        h3 = QtWidgets.QHBoxLayout()
+        h3.addWidget(QtWidgets.QLabel("Chunk Method:"))
+        self.chunk_combo = QtWidgets.QComboBox()
         self.chunk_combo.addItems(["select", "hybrid", "vs_ffms2", "vs_lsmash"])
         h3.addWidget(self.chunk_combo)
         l.addLayout(h3)
@@ -108,22 +99,22 @@ class SettingsDialog(QDialog):
         return w
 
     def _adv_tab(self):
-        w = QWidget(); l = QVBoxLayout(w)
-        self.chk_resume = QCheckBox("Resume")
-        self.chk_keep = QCheckBox("Keep intermediate")
+        w = QtWidgets.QWidget(); l = QtWidgets.QVBoxLayout(w)
+        self.chk_resume = QtWidgets.QCheckBox("Resume")
+        self.chk_keep = QtWidgets.QCheckBox("Keep intermediate")
         
         # --- NEW: VMAF Toggle ---
-        self.chk_vmaf = QCheckBox("Calculate VMAF Score (Slows down completion)")
+        self.chk_vmaf = QtWidgets.QCheckBox("Calculate VMAF Score (Slows down completion)")
         self.chk_vmaf.setToolTip("Runs a quality check after encoding. Useful for benchmarking.")
         
-        h = QHBoxLayout()
-        h.addWidget(QLabel("Retries:"))
-        self.sp_retry = QSpinBox(); self.sp_retry.setRange(0, 5)
+        h = QtWidgets.QHBoxLayout()
+        h.addWidget(QtWidgets.QLabel("Retries:"))
+        self.sp_retry = QtWidgets.QSpinBox(); self.sp_retry.setRange(0, 5)
         h.addWidget(self.sp_retry)
         
-        h2 = QHBoxLayout()
-        h2.addWidget(QLabel("Disk Warn (GB):"))
-        self.sp_disk = QSpinBox(); self.sp_disk.setRange(1, 1000)
+        h2 = QtWidgets.QHBoxLayout()
+        h2.addWidget(QtWidgets.QLabel("Disk Warn (GB):"))
+        self.sp_disk = QtWidgets.QSpinBox(); self.sp_disk.setRange(1, 1000)
         h2.addWidget(self.sp_disk)
         
         l.addWidget(self.chk_resume); l.addWidget(self.chk_keep)
@@ -134,9 +125,9 @@ class SettingsDialog(QDialog):
 
     def _browse(self, field, file=False):
         if file:
-            p, _ = QFileDialog.getOpenFileName(self, "Select File")
+            p, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select File")
         else:
-            p = QFileDialog.getExistingDirectory(self, "Select Dir")
+            p = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Dir")
         if p: field.setText(p)
 
     def load(self):
