@@ -735,8 +735,12 @@ class Runner(QObject):
                 except: pass
 
     def _emit_total_fps(self):
-        total = sum(j.fps_hist[-1] for j in self.jobs if j.status == JobStatus.RUNNING and j.fps_hist)
-        self.total_fps_changed.emit(total)
+        # Use windowed average for current speed display
+        total_current = sum(j.avg_fps for j in self.jobs if j.status == JobStatus.RUNNING)
+        self.total_fps_changed.emit(total_current)
+
+        # Use global average (entire duration) for stable ETA
+        total_long_term = sum(j.global_fps for j in self.jobs if j.status == JobStatus.RUNNING)
 
         # ETA Calculation
         all_remaining = 0
@@ -746,8 +750,8 @@ class Runner(QObject):
                      rem = j.total_frames - j.frames_done
                      all_remaining += max(0, rem)
 
-        if total > 0.1 and all_remaining > 0:
-            seconds = all_remaining / total
+        if total_long_term > 0.01 and all_remaining > 0:
+            seconds = all_remaining / total_long_term
             if seconds < 60:
                 eta_str = f"ETA: {int(seconds)}s"
             elif seconds < 3600:

@@ -56,6 +56,8 @@ class TestRunner(unittest.TestCase):
         job1.total_frames = 1000
         job1.frames_done = 500
         job1.fps_hist = [50.0]
+        job1.avg_fps = 50.0
+        job1.global_fps = 50.0
         job1.infile.name = "video1.mkv"
 
         # Job 2: Queued, 1000 frames total, 0 done
