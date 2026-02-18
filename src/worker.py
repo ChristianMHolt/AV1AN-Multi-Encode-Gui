@@ -279,6 +279,31 @@ class Runner(QObject):
                 try: t_frames = int(stream["nb_frames"])
                 except: pass
 
+            # Fallback: Calculate frames from duration * fps
+            if t_frames == 0:
+                try:
+                    dur = 0.0
+                    # Try stream duration first
+                    if "duration" in stream and stream["duration"] != "N/A":
+                        dur = float(stream["duration"])
+                    # Fallback to container duration
+                    elif "format" in data and "duration" in data["format"] and data["format"]["duration"] != "N/A":
+                        dur = float(data["format"]["duration"])
+
+                    fps = 0.0
+                    if "r_frame_rate" in stream and stream["r_frame_rate"] != "N/A":
+                        parts = stream["r_frame_rate"].split('/')
+                        if len(parts) == 2 and float(parts[1]) > 0:
+                            fps = float(parts[0]) / float(parts[1])
+                        else:
+                            fps = float(parts[0])
+
+                    if dur > 0 and fps > 0:
+                        t_frames = int(dur * fps)
+                        debug_log.append(f"Calculated frames: {t_frames} (dur={dur}, fps={fps:.2f})")
+                except Exception as e:
+                    debug_log.append(f"Frame calc failed: {e}")
+
         j = Job(
             idx=self._next_job_idx,
             infile=abs_path,
