@@ -2,20 +2,7 @@ import sys
 import signal
 import csv
 from pathlib import Path
-try:
-    from PySide6 import QtCore, QtGui, QtWidgets
-    from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                                   QLabel, QPushButton, QComboBox, QSplitter, 
-                                   QScrollArea, QGroupBox, QFileDialog, QMessageBox, 
-                                   QMenu, QApplication)
-    from PySide6.QtCore import Slot
-except ImportError:
-    from PyQt6 import QtCore, QtGui, QtWidgets
-    from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                                 QLabel, QPushButton, QComboBox, QSplitter, 
-                                 QScrollArea, QGroupBox, QFileDialog, QMessageBox, 
-                                 QMenu, QApplication)
-    from PyQt6.QtCore import pyqtSlot as Slot
+from .qt import QtWidgets, QtCore, QtGui, Slot
 
 from config import DEFAULT_PRESETS, INPUT_GLOBS, IS_WINDOWS, DEFAULT_OUT_DIR, DEFAULT_IN_DIR
 from worker import Runner, SystemMonitor, get_missing_tools, format_size
@@ -23,7 +10,7 @@ from models import JobStatus
 from .widgets import JobTile, LogViewer
 from .settings import SettingsDialog
 
-class MainWindow(QMainWindow):
+class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AV1 Encoder Pro - Auto Scale")
@@ -38,7 +25,7 @@ class MainWindow(QMainWindow):
         # Check Tools
         miss = get_missing_tools()
         if miss:
-            QMessageBox.warning(self, "Missing Tools", "\n".join(f"{t}: {h}" for t,h in miss))
+            QtWidgets.QMessageBox.warning(self, "Missing Tools", "\n".join(f"{t}: {h}" for t,h in miss))
         
         # Init Core
         self.runner = Runner(self.config, self)
@@ -53,7 +40,7 @@ class MainWindow(QMainWindow):
         self.load_initial()
         
     def setup_theme(self):
-        QApplication.setStyle("Fusion")
+        QtWidgets.QApplication.setStyle("Fusion")
         p = QtGui.QPalette()
         c = QtGui.QColor
         p.setColor(QtGui.QPalette.ColorRole.Window, c(35,35,35))
@@ -64,59 +51,59 @@ class MainWindow(QMainWindow):
         p.setColor(QtGui.QPalette.ColorRole.Button, c(45,45,45))
         p.setColor(QtGui.QPalette.ColorRole.ButtonText, c(255,255,255))
         p.setColor(QtGui.QPalette.ColorRole.Highlight, c(42,130,218))
-        QApplication.setPalette(p)
+        QtWidgets.QApplication.setPalette(p)
 
     def setup_ui(self):
-        central = QWidget()
+        central = QtWidgets.QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        layout = QtWidgets.QVBoxLayout(central)
         
         # Top Bar
-        h = QHBoxLayout()
-        self.lbl_fps = QLabel("Total FPS: 0.0")
+        h = QtWidgets.QHBoxLayout()
+        self.lbl_fps = QtWidgets.QLabel("Total FPS: 0.0")
         self.lbl_fps.setStyleSheet("color: #4a90e2; font-weight: bold; font-size: 14px;")
         h.addWidget(self.lbl_fps)
         h.addStretch()
         
-        self.combo_preset = QComboBox()
+        self.combo_preset = QtWidgets.QComboBox()
         self.combo_preset.addItems(list(DEFAULT_PRESETS.keys()))
-        h.addWidget(QLabel("Preset:"))
+        h.addWidget(QtWidgets.QLabel("Preset:"))
         h.addWidget(self.combo_preset)
         
-        b_add = QPushButton("Add Files"); b_add.clicked.connect(self.add_files_dlg)
-        b_set = QPushButton("Settings"); b_set.clicked.connect(self.show_settings)
-        b_exp = QPushButton("Export"); b_exp.clicked.connect(self.export_csv)
+        b_add = QtWidgets.QPushButton("Add Files"); b_add.clicked.connect(self.add_files_dlg)
+        b_set = QtWidgets.QPushButton("Settings"); b_set.clicked.connect(self.show_settings)
+        b_exp = QtWidgets.QPushButton("Export"); b_exp.clicked.connect(self.export_csv)
         h.addWidget(b_add); h.addWidget(b_set); h.addWidget(b_exp)
         layout.addLayout(h)
         
         # Splitter
-        split = QSplitter(QtCore.Qt.Orientation.Vertical)
+        split = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         
         # Jobs Area
-        scroll = QScrollArea()
+        scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
-        self.job_cont = QWidget()
-        self.job_layout = QVBoxLayout(self.job_cont)
+        self.job_cont = QtWidgets.QWidget()
+        self.job_layout = QtWidgets.QVBoxLayout(self.job_cont)
         self.job_layout.addStretch()
         scroll.setWidget(self.job_cont)
         split.addWidget(scroll)
         
         # Stats Panel
-        stats = QWidget()
-        sl = QHBoxLayout(stats)
+        stats = QtWidgets.QWidget()
+        sl = QtWidgets.QHBoxLayout(stats)
         
-        g_sys = QGroupBox("System")
-        l_sys = QVBoxLayout(g_sys)
-        self.l_cpu = QLabel("CPU: -")
-        self.l_mem = QLabel("RAM: -")
+        g_sys = QtWidgets.QGroupBox("System")
+        l_sys = QtWidgets.QVBoxLayout(g_sys)
+        self.l_cpu = QtWidgets.QLabel("CPU: -")
+        self.l_mem = QtWidgets.QLabel("RAM: -")
         l_sys.addWidget(self.l_cpu); l_sys.addWidget(self.l_mem)
         sl.addWidget(g_sys)
         
-        g_job = QGroupBox("Jobs")
-        l_job = QVBoxLayout(g_job)
-        self.l_q = QLabel("Queued: 0")
-        self.l_r = QLabel("Running: 0")
-        self.l_d = QLabel("Done: 0")
+        g_job = QtWidgets.QGroupBox("Jobs")
+        l_job = QtWidgets.QVBoxLayout(g_job)
+        self.l_q = QtWidgets.QLabel("Queued: 0")
+        self.l_r = QtWidgets.QLabel("Running: 0")
+        self.l_d = QtWidgets.QLabel("Done: 0")
         l_job.addWidget(self.l_q); l_job.addWidget(self.l_r); l_job.addWidget(self.l_d)
         sl.addWidget(g_job)
         
@@ -149,7 +136,7 @@ class MainWindow(QMainWindow):
 
     def add_files_dlg(self):
         input_dir = self.config.get("input_dir", str(DEFAULT_IN_DIR))
-        fs, _ = QFileDialog.getOpenFileNames(self, "Add Files", input_dir, "Video (*.mkv *.mp4 *.avi *.ts *.webm);;All (*)")
+        fs, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Add Files", input_dir, "Video (*.mkv *.mp4 *.avi *.ts *.webm);;All (*)")
         if fs: self.add_to_runner([Path(f) for f in fs])
 
     def add_to_runner(self, paths):
@@ -169,7 +156,7 @@ class MainWindow(QMainWindow):
             if t: t.deleteLater()
             self.upd_stats()
         else:
-            QMessageBox.warning(self, "Busy", "Stop job first.")
+            QtWidgets.QMessageBox.warning(self, "Busy", "Stop job first.")
 
     def show_log(self, idx):
         LogViewer(self.runner.jobs[idx], self).exec()
@@ -181,7 +168,7 @@ class MainWindow(QMainWindow):
             self.runner.update_config(self.config)
 
     def export_csv(self):
-        p, _ = QFileDialog.getSaveFileName(self, "Export", "stats.csv", "CSV (*.csv)")
+        p, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export", "stats.csv", "CSV (*.csv)")
         if p:
             try:
                 with open(p, 'w', newline='', encoding='utf-8') as f:
@@ -190,7 +177,7 @@ class MainWindow(QMainWindow):
                     for j in self.runner.jobs:
                         w.writerow([j.infile.name, j.status.value, j.preset_name, f"{j.avg_fps:.2f}"])
             except Exception as e:
-                QMessageBox.critical(self, "Error", str(e))
+                QtWidgets.QMessageBox.critical(self, "Error", str(e))
 
     @Slot(int)
     def on_job_upd(self, idx):
@@ -233,7 +220,7 @@ class MainWindow(QMainWindow):
         
         active = any(j.status in [JobStatus.RUNNING, JobStatus.MUXING] for j in self.runner.jobs)
         if active:
-            if QMessageBox.question(self, "Exit", "Stop encoding?") != QMessageBox.StandardButton.Yes:
+            if QtWidgets.QMessageBox.question(self, "Exit", "Stop encoding?") != QtWidgets.QMessageBox.StandardButton.Yes:
                 e.ignore(); return
         
         e.ignore()
@@ -244,4 +231,4 @@ class MainWindow(QMainWindow):
     @Slot()
     def final_exit(self):
         self.sys_mon.stop()
-        QApplication.quit()
+        QtWidgets.QApplication.quit()
