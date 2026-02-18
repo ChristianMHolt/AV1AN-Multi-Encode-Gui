@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from queue import Empty
+from collections import deque
 
 try:
     from PySide6.QtCore import QObject, Signal, QThread, QTimer
@@ -251,6 +252,9 @@ class Runner(QObject):
         self._closing = False
         self._next_job_idx = 0
         self._probe_workers = []
+
+        # Smooth Total ETA
+        self.total_eta_history = deque(maxlen=60) # ~7.5 seconds at 8Hz
 
     def update_config(self, config: Dict[str, Any]):
         self.config = config
@@ -735,12 +739,8 @@ class Runner(QObject):
                 except: pass
 
     def _emit_total_fps(self):
-        # Use windowed average for current speed display
-        total_current = sum(j.avg_fps for j in self.jobs if j.status == JobStatus.RUNNING)
-        self.total_fps_changed.emit(total_current)
-
-        # Use global average (entire duration) for stable ETA
-        total_long_term = sum(j.global_fps for j in self.jobs if j.status == JobStatus.RUNNING)
+        total = sum(j.fps_hist[-1] for j in self.jobs if j.status == JobStatus.RUNNING and j.fps_hist)
+        self.total_fps_changed.emit(total)
 
         # ETA Calculation
         all_remaining = 0
@@ -750,16 +750,24 @@ class Runner(QObject):
                      rem = j.total_frames - j.frames_done
                      all_remaining += max(0, rem)
 
-        if total_long_term > 0.01 and all_remaining > 0:
-            seconds = all_remaining / total_long_term
-            if seconds < 60:
-                eta_str = f"ETA: {int(seconds)}s"
-            elif seconds < 3600:
-                eta_str = f"ETA: {int(seconds//60)}m"
+        if total > 0.1 and all_remaining > 0:
+            instant_eta = all_remaining / total
+            self.total_eta_history.append(instant_eta)
+
+            # Use rolling average of ETA for display
+            smooth_eta = sum(self.total_eta_history) / len(self.total_eta_history)
+
+            if smooth_eta < 60:
+                eta_str = f"ETA: {int(smooth_eta)}s"
+            elif smooth_eta < 3600:
+                eta_str = f"ETA: {int(smooth_eta//60)}m"
             else:
-                eta_str = f"ETA: {seconds/3600:.1f}h"
+                eta_str = f"ETA: {smooth_eta/3600:.1f}h"
             self.total_eta_changed.emit(eta_str)
         else:
+            # If speed drops to 0, clear history so it doesn't get stuck
+            if total <= 0.1:
+                self.total_eta_history.clear()
             self.total_eta_changed.emit("")
 
     def _finalize_mux(self, job: Job):

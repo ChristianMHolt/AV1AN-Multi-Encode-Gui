@@ -93,12 +93,6 @@ class Job:
         return sum(self.fps_hist) / len(self.fps_hist) if self.fps_hist else 0.0
     
     @property
-    def global_fps(self) -> float:
-        if self.elapsed_time > 0:
-            return self.frames_done / self.elapsed_time
-        return 0.0
-
-    @property
     def compression_ratio(self) -> float:
         if self.original_size > 0 and self.encoded_size > 0:
             return (1 - self.encoded_size / self.original_size) * 100
@@ -109,12 +103,12 @@ class Job:
         if self.status not in [JobStatus.RUNNING, JobStatus.VMAF]:
             return None
 
-        if self.total_frames > 0 and self.global_fps > 0.01:
+        if self.total_frames > 0 and self.avg_fps > 0.1:
             remaining = self.total_frames - self.frames_done
             if remaining < 0: remaining = 0
-            return remaining / self.global_fps
+            return remaining / self.avg_fps
 
-        if self.pct > 0 and self.global_fps > 0:
+        if self.pct > 0 and self.avg_fps > 0:
             elapsed = self.elapsed_time
             total_estimated = elapsed / (self.pct / 100.0)
             return max(0.0, total_estimated - elapsed)
