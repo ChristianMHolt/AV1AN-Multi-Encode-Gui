@@ -10,7 +10,6 @@ import shlex
 import stat
 import re
 import json
-import math
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from queue import Empty
