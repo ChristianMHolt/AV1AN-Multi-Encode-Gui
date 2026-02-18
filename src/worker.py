@@ -27,7 +27,7 @@ except ImportError:
 from config import (
     DEFAULT_PRESETS, MAX_JOBS_CAP, BLOCKED_CPUS, IS_WINDOWS,
     DEFAULT_AV1AN_PATH, AV1AN_PROGRESS_RE, FFMPEG_PROGRESS_RE,
-    LOG_DIR, GUI_REFRESH_HZ
+    SCENE_DETECT_RE, LOG_DIR, GUI_REFRESH_HZ
 )
 from models import Job, JobStatus, CpuGroup
 
@@ -206,6 +206,7 @@ class Runner(QObject):
     job_finished = Signal(int)
     job_added = Signal(object)
     total_fps_changed = Signal(float)
+    total_eta_changed = Signal(str)
     notify = Signal(str)
     all_jobs_completed = Signal()
     shutdown_complete = Signal()
@@ -506,6 +507,7 @@ class Runner(QObject):
         ]
         
         try:
+             job.log_file_handle = open(job.mux_log, "w", encoding="utf-8")
              job.log_file_handle.write(f"\n=== MUXING ===\n{shlex.join(cmd)}\n")
              job.log_file_handle.flush()
         except: pass
@@ -518,7 +520,7 @@ class Runner(QObject):
                 startupinfo.wShowWindow = subprocess.SW_HIDE
             
             job.mux_proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                cmd, stdout=job.log_file_handle, stderr=job.log_file_handle,
                 text=True, startupinfo=startupinfo, encoding='utf-8', errors='replace'
             )
         except Exception as e:
@@ -611,6 +613,9 @@ class Runner(QObject):
                 elif job.status == JobStatus.MUXING and job.mux_proc:
                     rc = job.mux_proc.poll()
                     if rc is not None:
+                        try: job.log_file_handle.close()
+                        except: pass
+
                         if rc == 0:
                             self._finalize_mux(job) 
                             if self.config.get("calc_vmaf", True):
@@ -661,10 +666,19 @@ class Runner(QObject):
                         job.log_read_offset = f.tell()
                         regex = AV1AN_PROGRESS_RE if job.status == JobStatus.RUNNING else FFMPEG_PROGRESS_RE
                         for line in new_data.splitlines():
+                            # Scene Detection Check
+                            if job.status == JobStatus.RUNNING:
+                                sm = SCENE_DETECT_RE.search(line)
+                                if sm:
+                                    job.pct = float(sm.group(1))
+                                    job.status_text = f"Scene Detection: {job.pct:.0f}%"
+                                    continue
+
                             m = regex.search(line)
                             if m:
                                 try:
                                     if job.status == JobStatus.RUNNING:
+                                        job.status_text = ""
                                         pct_val = float(m.group(1))
                                         frames_done = int(m.group(2))
                                         frames_total = int(m.group(3))
@@ -698,6 +712,26 @@ class Runner(QObject):
     def _emit_total_fps(self):
         total = sum(j.fps_hist[-1] for j in self.jobs if j.status == JobStatus.RUNNING and j.fps_hist)
         self.total_fps_changed.emit(total)
+
+        # ETA Calculation
+        all_remaining = 0
+        for j in self.jobs:
+             if j.status in [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED]:
+                 if j.total_frames > 0:
+                     rem = j.total_frames - j.frames_done
+                     all_remaining += max(0, rem)
+
+        if total > 0.1 and all_remaining > 0:
+            seconds = all_remaining / total
+            if seconds < 60:
+                eta_str = f"ETA: {int(seconds)}s"
+            elif seconds < 3600:
+                eta_str = f"ETA: {int(seconds//60)}m"
+            else:
+                eta_str = f"ETA: {seconds/3600:.1f}h"
+            self.total_eta_changed.emit(eta_str)
+        else:
+            self.total_eta_changed.emit("")
 
     def _finalize_mux(self, job: Job):
         remux_tmp = job.out_mkv.with_suffix(".remux.mkv")

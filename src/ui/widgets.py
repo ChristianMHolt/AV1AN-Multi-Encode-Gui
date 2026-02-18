@@ -42,7 +42,8 @@ class JobTile(QFrame):
         """)
         
         self.layout = QVBoxLayout(self)
-        self.layout.setSpacing(6)
+        self.layout.setContentsMargins(5, 5, 5, 5)
+        self.layout.setSpacing(2)
         
         h = QHBoxLayout()
         self.title = QLabel(job.infile.name)
@@ -78,7 +79,7 @@ class JobTile(QFrame):
         if HAS_PYQTGRAPH and not disable_graphs:
             self.plot = pg.PlotWidget()
             self.plot.setBackground('#1a1a1a')
-            self.plot.setFixedHeight(100)
+            self.plot.setFixedHeight(60)
             self.plot.hideAxis('bottom')
             self.plot.getAxis('left').setPen('#888')
             self.curve = self.plot.plot([], [], pen=pg.mkPen('#4a90e2', width=2))
@@ -111,7 +112,11 @@ class JobTile(QFrame):
         j = self.job
         self.bar.setValue(int(j.pct * 10))
         self.bar.setFormat(f"{j.pct:.1f}%")
-        self.status.setText(j.status.value)
+
+        if j.status_text:
+            self.status.setText(j.status_text)
+        else:
+            self.status.setText(j.status.value)
         
         can_pause = (j.status == JobStatus.RUNNING and j.proc is not None)
         can_resume = (j.status == JobStatus.PAUSED)
