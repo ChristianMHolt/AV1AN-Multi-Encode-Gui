@@ -15,10 +15,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from queue import Empty
 
-try:
-    from PySide6.QtCore import QObject, Signal, QThread, QTimer
-except ImportError:
-    from PyQt6.QtCore import QObject, pyqtSignal as Signal, QThread, QTimer
+from ui.qt import QtCore, Signal
 
 try:
     import psutil
@@ -142,7 +139,7 @@ def _resume_tree(root_pid: int) -> bool:
 
 # --- Classes ---
 
-class SystemMonitor(QThread):
+class SystemMonitor(QtCore.QThread):
     stats_updated = Signal(dict)
     
     def __init__(self):
@@ -167,7 +164,7 @@ class SystemMonitor(QThread):
     def stop(self):
         self.running = False
 
-class Runner(QObject):
+class Runner(QtCore.QObject):
     job_updated = Signal(int)
     job_finished = Signal(int)
     total_fps_changed = Signal(float)
@@ -201,7 +198,7 @@ class Runner(QObject):
         self.running: Dict[int, Job] = {}
         self.run_lock = threading.Lock()
         
-        self.timer = QTimer()
+        self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / GUI_REFRESH_HZ))
         

@@ -1,15 +1,6 @@
 import time
 from typing import Callable
-try:
-    from PySide6 import QtCore, QtGui, QtWidgets
-    from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-                                   QProgressBar, QPushButton, QDialog, QComboBox, 
-                                   QLineEdit, QTextEdit, QTabWidget)
-except ImportError:
-    from PyQt6 import QtCore, QtGui, QtWidgets
-    from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-                                 QProgressBar, QPushButton, QDialog, QComboBox, 
-                                 QLineEdit, QTextEdit, QTabWidget)
+from .qt import QtCore, QtGui, QtWidgets
 
 from config import DEFAULT_PRESETS
 from models import Job, JobStatus
@@ -21,7 +12,7 @@ try:
 except:
     HAS_PYQTGRAPH = False
 
-class JobTile(QFrame):
+class JobTile(QtWidgets.QFrame):
     def __init__(self, job: Job, on_toggle: Callable, on_remove: Callable, 
                  on_log: Callable, disable_graphs: bool = False, parent=None):
         super().__init__(parent)
@@ -31,7 +22,7 @@ class JobTile(QFrame):
         self.on_log = on_log
         self.disable_graphs = disable_graphs
         
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
         self.setStyleSheet("""
             QFrame {
                 border: 1px solid #3a3a3a; border-radius: 8px;
@@ -41,23 +32,23 @@ class JobTile(QFrame):
             QFrame:hover { border: 1px solid #4a4a4a; }
         """)
         
-        self.layout = QVBoxLayout(self)
+        self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.setSpacing(6)
         
-        h = QHBoxLayout()
-        self.title = QLabel(job.infile.name)
+        h = QtWidgets.QHBoxLayout()
+        self.title = QtWidgets.QLabel(job.infile.name)
         self.title.setStyleSheet("font-weight: bold; font-size: 10pt;")
         h.addWidget(self.title, 1)
-        self.status = QLabel(job.status.value)
+        self.status = QtWidgets.QLabel(job.status.value)
         self.status.setStyleSheet("color: #888;")
         h.addWidget(self.status)
         self.layout.addLayout(h)
         
-        self.info = QLabel(f"Managed Auto-Scaling • {job.preset_name}")
+        self.info = QtWidgets.QLabel(f"Managed Auto-Scaling • {job.preset_name}")
         self.info.setStyleSheet("color: #aaa; font-size: 8pt;")
         self.layout.addWidget(self.info)
         
-        self.bar = QProgressBar()
+        self.bar = QtWidgets.QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setStyleSheet("""
             QProgressBar {
@@ -71,7 +62,7 @@ class JobTile(QFrame):
         """)
         self.layout.addWidget(self.bar)
         
-        self.stats = QLabel("—")
+        self.stats = QtWidgets.QLabel("—")
         self.stats.setStyleSheet("color: #bbb; font-size: 8pt;")
         self.layout.addWidget(self.stats)
         
@@ -86,16 +77,16 @@ class JobTile(QFrame):
         else:
             self.plot = None
             
-        btns = QHBoxLayout()
-        self.btn_pause = QPushButton("Pause")
+        btns = QtWidgets.QHBoxLayout()
+        self.btn_pause = QtWidgets.QPushButton("Pause")
         self.btn_pause.setFixedWidth(80)
         self.btn_pause.clicked.connect(lambda: self.on_toggle(self.job.idx))
         
-        self.btn_log = QPushButton("Log")
+        self.btn_log = QtWidgets.QPushButton("Log")
         self.btn_log.setFixedWidth(80)
         self.btn_log.clicked.connect(lambda: self.on_log(self.job.idx))
         
-        self.btn_rm = QPushButton("Remove")
+        self.btn_rm = QtWidgets.QPushButton("Remove")
         self.btn_rm.setFixedWidth(80)
         self.btn_rm.clicked.connect(lambda: self.on_remove(self.job.idx))
         
@@ -158,19 +149,19 @@ class JobTile(QFrame):
         if self.plot and j.fps_hist:
             self.curve.setData(list(j.fps_hist))
 
-class LogViewer(QDialog):
+class LogViewer(QtWidgets.QDialog):
     def __init__(self, job: Job, parent=None):
         super().__init__(parent)
         self.job = job
         self.setWindowTitle(f"Logs - {job.infile.name}")
         self.resize(800, 600)
         
-        layout = QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout(self)
         
-        tabs = QTabWidget()
-        self.txt_enc = QTextEdit(); self.txt_enc.setReadOnly(True)
-        self.txt_mux = QTextEdit(); self.txt_mux.setReadOnly(True)
-        self.txt_vmaf = QTextEdit(); self.txt_vmaf.setReadOnly(True) # <--- NEW TAB
+        tabs = QtWidgets.QTabWidget()
+        self.txt_enc = QtWidgets.QTextEdit(); self.txt_enc.setReadOnly(True)
+        self.txt_mux = QtWidgets.QTextEdit(); self.txt_mux.setReadOnly(True)
+        self.txt_vmaf = QtWidgets.QTextEdit(); self.txt_vmaf.setReadOnly(True) # <--- NEW TAB
         
         self.txt_enc.setFont(QtGui.QFont("Courier", 9))
         self.txt_mux.setFont(QtGui.QFont("Courier", 9))
@@ -181,7 +172,7 @@ class LogViewer(QDialog):
         tabs.addTab(self.txt_vmaf, "VMAF Log")
         layout.addWidget(tabs)
         
-        btn = QPushButton("Refresh")
+        btn = QtWidgets.QPushButton("Refresh")
         btn.clicked.connect(self.load)
         layout.addWidget(btn)
         self.load()
