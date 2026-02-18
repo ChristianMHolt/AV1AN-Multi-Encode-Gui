@@ -5,13 +5,15 @@ import platform
 
 IS_WINDOWS = (os.name == "nt") or (platform.system().lower() == "windows")
 
-# --- POINT TO THE RUST EXE ---
-DEFAULT_AV1AN_PATH = r"C:\7950xGemini-Enc\src\av1an.exe" 
-DEFAULT_SVT_PATH = r"C:\7950xGemini-Enc\src\SvtAv1EncApp.exe"
+# Calculate the project root
+SRC_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SRC_DIR.parent
 
-DEFAULT_TEMP_DIR = r"C:\7950xGemini-Enc\temp"
-# Calculate the project root (one level up from this file's directory "src")
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# --- POINT TO THE RUST EXE ---
+DEFAULT_AV1AN_PATH = str(SRC_DIR / "av1an.exe")
+DEFAULT_SVT_PATH = str(SRC_DIR / "SvtAv1EncApp.exe")
+
+DEFAULT_TEMP_DIR = str(PROJECT_ROOT / "temp")
 
 DEFAULT_OUT_DIR = PROJECT_ROOT / "output"
 DEFAULT_IN_DIR = PROJECT_ROOT / "input"
