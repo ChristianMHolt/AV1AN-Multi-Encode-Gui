@@ -279,6 +279,25 @@ class Runner(QObject):
                 try: t_frames = int(stream["nb_frames"])
                 except: pass
 
+            # Fallback: Duration * FPS
+            if t_frames == 0:
+                try:
+                    dur = float(stream.get("duration", 0))
+                    if dur == 0:
+                         fmt = data.get("format", {})
+                         dur = float(fmt.get("duration", 0))
+
+                    fps_str = stream.get("r_frame_rate", "0/0")
+                    if "/" in fps_str:
+                        num, den = map(int, fps_str.split("/"))
+                        fps = num / den if den != 0 else 0
+                    else:
+                        fps = float(fps_str)
+
+                    if dur > 0 and fps > 0:
+                        t_frames = int(dur * fps)
+                except: pass
+
         j = Job(
             idx=self._next_job_idx,
             infile=abs_path,
@@ -710,8 +729,11 @@ class Runner(QObject):
                 except: pass
 
     def _emit_total_fps(self):
-        total = sum(j.fps_hist[-1] for j in self.jobs if j.status == JobStatus.RUNNING and j.fps_hist)
-        self.total_fps_changed.emit(total)
+        # Use average FPS (windowed) for smoother ETA
+        total = sum(j.avg_fps for j in self.jobs if j.status == JobStatus.RUNNING)
+        # Emit instantaneous FPS for display
+        current_inst = sum(j.fps_hist[-1] for j in self.jobs if j.status == JobStatus.RUNNING and j.fps_hist)
+        self.total_fps_changed.emit(current_inst)
 
         # ETA Calculation
         all_remaining = 0
