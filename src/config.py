@@ -11,7 +11,11 @@ DEFAULT_SVT_PATH = r"C:\7950xGUIEncoder\svt-av1-psyex\Bin\Release\SvtAv1EncApp.e
 
 DEFAULT_TEMP_DIR = r"C:\7950xGemini-Enc\temp"
 DEFAULT_OUT_DIR = Path(r"E:\Temp\AV1AN-Output")
-LOG_DIR = (Path.cwd() / ".log").resolve()
+
+# Calculate the project root (one level up from this file's directory "src")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+LOG_DIR = (PROJECT_ROOT / ".log").resolve()
 
 # Engine Config
 MAX_JOBS_CAP = 4 
@@ -20,7 +24,7 @@ BLOCKED_CPUS = [0, 16]
 # FAST METHOD (Rust handles this natively)
 USE_CHUNK_METHOD = "ffms2"
 
-INPUT_DIR = Path.cwd() / "input"
+INPUT_DIR = PROJECT_ROOT / "input"
 INPUT_GLOBS = ["*.mkv", "*.mp4", "*.mov", "*.avi", "*.m2ts", "*.ts", "*.webm"]
 FPS_WINDOW = 60
 GUI_REFRESH_HZ = 8
