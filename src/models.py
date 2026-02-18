@@ -61,6 +61,7 @@ class Job:
     original_size: int = 0
     encoded_size: int = 0
     error_message: str = ""
+    status_text: str = ""
     retry_count: int = 0
     max_retries: int = 2
     

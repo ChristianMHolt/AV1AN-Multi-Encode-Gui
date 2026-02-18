@@ -68,6 +68,9 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 # AV1AN Progress
 AV1AN_PROGRESS_RE = re.compile(r"PROGRESS:\s+(\d+(?:\.\d+)?)%\s+\|\s+Frames:\s+(\d+)/(\d+)\s+\|\s+Chunks:\s+(\d+)/(\d+)\s+\|\s+Speed:\s+(\d+(?:\.\d+)?)\s+fps", re.IGNORECASE)
 
+# Scene Detection (Av1an)
+SCENE_DETECT_RE = re.compile(r"Scene detection:\s*(\d+(?:\.\d+)?)%", re.IGNORECASE)
+
 # FFmpeg Progress (for VMAF)
 # Matches: frame=  123 fps= 24.5 ...
 FFMPEG_PROGRESS_RE = re.compile(r"frame=\s*(\d+).*?fps=\s*(\d+(?:\.\d+)?)", re.IGNORECASE)

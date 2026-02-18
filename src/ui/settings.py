@@ -1,13 +1,16 @@
 import os
+import json
 try:
     from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                                    QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit, 
-                                   QCheckBox, QSpinBox, QComboBox, QFileDialog)
+                                   QCheckBox, QSpinBox, QComboBox, QFileDialog, QListWidget,
+                                   QListWidgetItem, QMessageBox)
     from PySide6.QtCore import QSettings
 except ImportError:
     from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                                  QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit, 
-                                 QCheckBox, QSpinBox, QComboBox, QFileDialog)
+                                 QCheckBox, QSpinBox, QComboBox, QFileDialog, QListWidget,
+                                 QListWidgetItem, QMessageBox)
     from PyQt6.QtCore import QSettings
 
 from config import (
@@ -27,6 +30,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._gen_tab(), "General")
         tabs.addTab(self._enc_tab(), "Encoder")
         tabs.addTab(self._adv_tab(), "Advanced")
+        tabs.addTab(self._presets_tab(), "Presets")
         layout.addWidget(tabs)
         
         btns = QHBoxLayout()
@@ -132,6 +136,65 @@ class SettingsDialog(QDialog):
         l.addStretch()
         return w
 
+    def _presets_tab(self):
+        w = QWidget(); l = QVBoxLayout(w)
+
+        self.preset_list = QListWidget()
+        l.addWidget(QLabel("Custom Presets:"))
+        l.addWidget(self.preset_list)
+
+        g = QGroupBox("Edit Preset")
+        gl = QVBoxLayout(g)
+
+        h1 = QHBoxLayout()
+        h1.addWidget(QLabel("Name:"))
+        self.p_name = QLineEdit()
+        h1.addWidget(self.p_name)
+        gl.addLayout(h1)
+
+        h2 = QHBoxLayout()
+        h2.addWidget(QLabel("SVT Opts:"))
+        self.p_opts = QLineEdit()
+        h2.addWidget(self.p_opts)
+        gl.addLayout(h2)
+
+        btns = QHBoxLayout()
+        b_add = QPushButton("Add/Update")
+        b_add.clicked.connect(self.add_preset)
+        b_del = QPushButton("Delete")
+        b_del.clicked.connect(self.del_preset)
+        btns.addWidget(b_add); btns.addWidget(b_del)
+        gl.addLayout(btns)
+
+        l.addWidget(g)
+        return w
+
+    def add_preset(self):
+        name = self.p_name.text().strip()
+        opts = self.p_opts.text().strip()
+        if not name or not opts: return
+
+        self.custom_presets[name] = {"svt_opts": opts, "workers": "auto"}
+        self._refresh_preset_list()
+        self.p_name.clear(); self.p_opts.clear()
+
+    def del_preset(self):
+        item = self.preset_list.currentItem()
+        if item:
+            # Assuming format "Name (opts)"
+            # Better to store key in item data
+            name = item.data(100) # Use user role
+            if name in self.custom_presets:
+                del self.custom_presets[name]
+                self._refresh_preset_list()
+
+    def _refresh_preset_list(self):
+        self.preset_list.clear()
+        for k, v in self.custom_presets.items():
+            item = QListWidgetItem(f"{k} ({v['svt_opts']})")
+            item.setData(100, k)
+            self.preset_list.addItem(item)
+
     def _browse(self, field, file=False):
         if file:
             p, _ = QFileDialog.getOpenFileName(self, "Select File")
@@ -160,6 +223,16 @@ class SettingsDialog(QDialog):
         self.sp_retry.setValue(int(s.value("max_retries", 2)))
         self.sp_disk.setValue(int(s.value("disk_warn_gb", 50)))
 
+        # Load Custom Presets
+        try:
+            raw = self.settings.value("custom_presets", "{}")
+            self.custom_presets = json.loads(raw)
+        except:
+            self.custom_presets = {}
+        # We need to call refresh but QListWidgetItem needs imports which might be tricky if handled inline.
+        # I'll handle imports in _refresh_preset_list properly.
+        self._refresh_preset_list()
+
     def save_settings(self):
         s = self.settings
         s.setValue("input_dir", self.in_edit.text())
@@ -177,6 +250,10 @@ class SettingsDialog(QDialog):
         s.setValue("calc_vmaf", self.chk_vmaf.isChecked())
         s.setValue("max_retries", self.sp_retry.value())
         s.setValue("disk_warn_gb", self.sp_disk.value())
+        s.setValue("custom_presets", json.dumps(self.custom_presets))
+
+    def get_custom_presets(self):
+        return dict(self.custom_presets)
 
     def get_config(self):
         return {

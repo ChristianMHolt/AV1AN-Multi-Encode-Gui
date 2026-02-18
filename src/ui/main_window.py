@@ -1,6 +1,7 @@
 import sys
 import signal
 import csv
+import collections
 from pathlib import Path
 try:
     from PySide6 import QtCore, QtGui, QtWidgets
@@ -44,6 +45,11 @@ class MainWindow(QMainWindow):
         self.runner = Runner(self.config, self)
         self.sys_mon = SystemMonitor()
         
+        self.pending_jobs = collections.deque()
+        self.add_job_timer = QtCore.QTimer()
+        self.add_job_timer.timeout.connect(self._process_pending_jobs)
+        self.add_job_timer.start(50)
+
         # UI Setup
         self.setup_ui()
         self.connect_signals()
@@ -79,10 +85,15 @@ class MainWindow(QMainWindow):
         h.addStretch()
         
         self.combo_preset = QComboBox()
-        self.combo_preset.addItems(list(DEFAULT_PRESETS.keys()))
+        self._load_presets()
         h.addWidget(QLabel("Preset:"))
         h.addWidget(self.combo_preset)
         
+        b_info = QPushButton("?"); b_info.setFixedWidth(25)
+        b_info.setToolTip("Show Preset Details")
+        b_info.clicked.connect(self.show_preset_info)
+        h.addWidget(b_info)
+
         b_add = QPushButton("Add Files"); b_add.clicked.connect(self.add_files_dlg)
         b_set = QPushButton("Settings"); b_set.clicked.connect(self.show_settings)
         b_exp = QPushButton("Export"); b_exp.clicked.connect(self.export_csv)
@@ -135,7 +146,8 @@ class MainWindow(QMainWindow):
         self.runner.job_updated.connect(self.on_job_upd)
         self.runner.job_finished.connect(self.on_job_fin)
         self.runner.job_added.connect(self.on_job_added)
-        self.runner.total_fps_changed.connect(lambda f: self.lbl_fps.setText(f"FPS: {f:.1f}"))
+        self.runner.total_fps_changed.connect(self.on_fps_changed)
+        self.runner.total_eta_changed.connect(self.on_eta_changed)
         self.runner.shutdown_complete.connect(self.final_exit)
         self.sys_mon.stats_updated.connect(self.on_sys_upd)
 
@@ -157,6 +169,12 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def on_job_added(self, j):
+        self.pending_jobs.append(j)
+
+    def _process_pending_jobs(self):
+        if not self.pending_jobs: return
+        j = self.pending_jobs.popleft()
+
         t = JobTile(j, self.runner.toggle_pause, self.rm_job, self.show_log,
                     self.config.get("disable_graphs", False))
         self.tiles[j.idx] = t
@@ -179,6 +197,7 @@ class MainWindow(QMainWindow):
             self.settings_dlg.save_settings()
             self.config = self.settings_dlg.get_config()
             self.runner.update_config(self.config)
+            self._load_presets()
 
     def export_csv(self):
         p, _ = QFileDialog.getSaveFileName(self, "Export", "stats.csv", "CSV (*.csv)")
@@ -214,9 +233,51 @@ class MainWindow(QMainWindow):
     def upd_stats(self):
         c = {s:0 for s in JobStatus}
         for j in self.runner.jobs: c[j.status] += 1
+
+        running_count = c[JobStatus.RUNNING] + c[JobStatus.MUXING] + c[JobStatus.VMAF]
         self.l_q.setText(f"Queued: {c[JobStatus.QUEUED]}")
-        self.l_r.setText(f"Running: {c[JobStatus.RUNNING]}")
+        self.l_r.setText(f"Running: {running_count}")
         self.l_d.setText(f"Done: {c[JobStatus.COMPLETED]}")
+
+    def _load_presets(self):
+        current = self.combo_preset.currentText()
+        self.combo_preset.clear()
+
+        presets = list(DEFAULT_PRESETS.keys())
+        custom = self.settings_dlg.get_custom_presets()
+        presets.extend(custom.keys())
+
+        self.combo_preset.addItems(presets)
+
+        if current in presets:
+            self.combo_preset.setCurrentText(current)
+        else:
+            self.combo_preset.setCurrentText("High Quality")
+
+    def show_preset_info(self):
+        name = self.combo_preset.currentText()
+        if name in DEFAULT_PRESETS:
+            opts = DEFAULT_PRESETS[name]["svt_opts"]
+        else:
+            custom = self.settings_dlg.get_custom_presets()
+            opts = custom.get(name, {}).get("svt_opts", "Unknown")
+        QMessageBox.information(self, f"Preset: {name}", f"SVT Args:\n{opts}")
+
+    def on_fps_changed(self, fps):
+        self.current_total_fps = fps
+        self.update_fps_label()
+
+    def on_eta_changed(self, eta: str):
+        self.current_eta = eta
+        self.update_fps_label()
+
+    def update_fps_label(self):
+        fps = getattr(self, 'current_total_fps', 0.0)
+        text = f"Total FPS: {fps:.1f}"
+        eta = getattr(self, 'current_eta', "")
+        if eta:
+            text += f" | {eta}"
+        self.lbl_fps.setText(text)
 
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls(): e.accept()
