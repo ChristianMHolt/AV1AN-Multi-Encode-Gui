@@ -17,7 +17,7 @@ except ImportError:
                                  QSystemTrayIcon, QMenu, QApplication)
     from PyQt6.QtCore import pyqtSlot as Slot
 
-from config import DEFAULT_PRESETS, INPUT_GLOBS, IS_WINDOWS, DEFAULT_OUT_DIR, INPUT_DIR
+from config import DEFAULT_PRESETS, INPUT_GLOBS, IS_WINDOWS, DEFAULT_OUT_DIR, DEFAULT_IN_DIR
 from worker import Runner, SystemMonitor, get_missing_tools, format_size
 from models import JobStatus
 from .widgets import JobTile, LogViewer
@@ -140,13 +140,15 @@ class MainWindow(QMainWindow):
 
     def load_initial(self):
         files = []
-        if not INPUT_DIR.exists():
-            INPUT_DIR.mkdir(parents=True, exist_ok=True)
-        for g in INPUT_GLOBS: files.extend(INPUT_DIR.glob(g))
+        input_dir = Path(self.config.get("input_dir", DEFAULT_IN_DIR))
+        if not input_dir.exists():
+            input_dir.mkdir(parents=True, exist_ok=True)
+        for g in INPUT_GLOBS: files.extend(input_dir.glob(g))
         if files: self.add_to_runner(files)
 
     def add_files_dlg(self):
-        fs, _ = QFileDialog.getOpenFileNames(self, "Add Files", str(INPUT_DIR), "Video (*.mkv *.mp4 *.avi *.ts *.webm);;All (*)")
+        input_dir = self.config.get("input_dir", str(DEFAULT_IN_DIR))
+        fs, _ = QFileDialog.getOpenFileNames(self, "Add Files", input_dir, "Video (*.mkv *.mp4 *.avi *.ts *.webm);;All (*)")
         if fs: self.add_to_runner([Path(f) for f in fs])
 
     def add_to_runner(self, paths):
@@ -173,7 +175,7 @@ class MainWindow(QMainWindow):
         if self.settings_dlg.exec():
             self.settings_dlg.save_settings()
             self.config = self.settings_dlg.get_config()
-            self.runner.config = self.config
+            self.runner.update_config(self.config)
 
     def export_csv(self):
         p, _ = QFileDialog.getSaveFileName(self, "Export", "stats.csv", "CSV (*.csv)")
