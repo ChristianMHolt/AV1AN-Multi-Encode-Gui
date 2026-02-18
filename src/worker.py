@@ -117,9 +117,6 @@ def on_rm_error(func, path, exc_info):
     try: func(path)
     except: pass
 
-def _try_import_psutil():
-    return psutil
-
 def _suspend_tree(root_pid: int) -> bool:
     if not psutil: return False
     try:
