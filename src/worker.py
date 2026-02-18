@@ -19,7 +19,6 @@ try:
 except ImportError:
     from PyQt6.QtCore import QObject, pyqtSignal as Signal, QThread, QTimer
 
-# Attempt to import psutil
 try:
     import psutil
 except ImportError:
@@ -497,15 +496,24 @@ class Runner(QObject):
             phys_cores = (os.cpu_count() or 4) // 2
         threads = phys_cores
 
-        # Path Sanitization
+        # --- FIX: ESCAPE SPECIAL CHARS FOR FFMPEG FILTER ---
+        # 1. Convert to forward slashes
         json_path_str = str(job.vmaf_log.resolve()).replace("\\", "/")
+        # 2. Escape ':' because it separates filter options
         json_path_str = json_path_str.replace(":", "\\:") 
+        # 3. Escape '[' and ']' because they are stream specifiers in filter graphs
+        json_path_str = json_path_str.replace("[", "\\[").replace("]", "\\]")
+        # 4. Escape spaces
+        json_path_str = json_path_str.replace(" ", "\\ ")
+        # 5. Escape commas (option separators) and single quotes
+        json_path_str = json_path_str.replace(",", "\\,").replace("'", "\\'")
 
         cmd = [
             "ffmpeg", "-stats", 
             "-threads", str(threads), "-i", str(job.out_mkv), 
             "-threads", str(threads), "-i", str(job.infile),
             "-filter_complex_threads", str(threads),
+            # Path is now heavily sanitized
             "-filter_complex", f"libvmaf=log_path={json_path_str}:log_fmt=json:n_threads={threads}:n_subsample=4",
             "-f", "null", "-"
         ]
@@ -656,10 +664,7 @@ class Runner(QObject):
                 self._fail_job(job, f"Finalize error: {e}")
 
     def _read_vmaf_score(self, job: Job):
-        # Debug: Start
         print(f"[DEBUG] Attempting to read VMAF from: {job.vmaf_log}")
-        
-        # We try 3 times to give OS time to flush
         for attempt in range(3):
             if job.vmaf_log.exists():
                 size = job.vmaf_log.stat().st_size
@@ -672,12 +677,10 @@ class Runner(QObject):
             
         scores = []
         if job.vmaf_log.exists():
-            # Method 1: Regex Scan (Most robust for truncated files)
             try:
                 with open(job.vmaf_log, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                     print(f"[DEBUG] Read {len(content)} chars from file.")
-                    
                     matches = re.findall(r'"vmaf":\s*([\d\.]+)', content)
                     if matches:
                         scores = [float(m) for m in matches]
@@ -688,7 +691,7 @@ class Runner(QObject):
                 print(f"[DEBUG] Error reading text content: {e}")
 
         if scores:
-            # --- FIX: Filter out erroneous 0.0 scores ---
+            # Filter out erroneous 0.0 scores
             valid_scores = [s for s in scores if s > 0.01]
             print(f"[DEBUG] Filtered {len(scores) - len(valid_scores)} zero-scores.")
             
@@ -696,12 +699,10 @@ class Runner(QObject):
                 valid_scores.sort()
                 count = len(valid_scores)
                 
-                # Calc Mean if missing
                 if job.vmaf_score == 0.0:
                     job.vmaf_score = sum(valid_scores) / count
                     print(f"[DEBUG] Calculated Mean from frames: {job.vmaf_score}")
                 
-                # Calc Lows
                 idx_1 = max(0, int(count * 0.01))
                 idx_01 = max(0, int(count * 0.001))
                 job.vmaf_1_percent = valid_scores[idx_1]
@@ -712,7 +713,6 @@ class Runner(QObject):
         else:
             print("[DEBUG] No scores extracted.")
 
-        # Fallback to log file for Mean score
         if job.vmaf_score == 0.0 and job.term_log.exists():
             print(f"[DEBUG] Checking term log for fallback score: {job.term_log}")
             try:
