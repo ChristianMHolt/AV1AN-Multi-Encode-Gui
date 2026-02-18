@@ -226,6 +226,13 @@ class Runner(QObject):
              if check_tool("SvtAv1EncApp", ""):
                  svt_path = Path(shutil.which("SvtAv1EncApp")) # type: ignore
         
+        # Ensure path is absolute so it works regardless of CWD changes
+        try:
+            if svt_path.exists():
+                svt_path = svt_path.resolve()
+        except Exception:
+            pass
+
         self.proc_env = os.environ.copy()
         if svt_path.parent.exists():
             self.proc_env["PATH"] = str(svt_path.parent) + os.pathsep + self.proc_env.get("PATH", "")
