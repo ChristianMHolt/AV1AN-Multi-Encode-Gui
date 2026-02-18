@@ -64,6 +64,15 @@ def _strip_lp(s: str) -> str:
         out.append(t)
     return shlex.join(out)
 
+def escape_ffmpeg_path(path: Path) -> str:
+    s = str(path.resolve())
+    # 1. Escape backslashes first (because \ is escape char)
+    s = s.replace("\\", "\\\\")
+    # 2. Escape single quotes (so they don't terminate the string)
+    s = s.replace("'", "\\'")
+    # 3. Wrap in single quotes
+    return f"'{s}'"
+
 def get_valid_cpu_pool() -> List[int]:
     total_threads = os.cpu_count() or 1
     return [i for i in range(total_threads) if i not in BLOCKED_CPUS]
@@ -535,18 +544,8 @@ class Runner(QObject):
         threads = phys_cores
 
         # --- FIX: ESCAPE SPECIAL CHARS FOR FFMPEG FILTER ---
-        # 1. Escape backslashes first
-        json_path_str = str(job.vmaf_log.resolve()).replace("\\", "\\\\")
-        # 2. Escape ':' because it separates filter options
-        json_path_str = json_path_str.replace(":", "\\:") 
-        # 3. Escape '[' and ']' because they are stream specifiers in filter graphs
-        json_path_str = json_path_str.replace("[", "\\[").replace("]", "\\]")
-        # 4. Escape spaces
-        json_path_str = json_path_str.replace(" ", "\\ ")
-        # 5. Escape commas (option separators) and single quotes
-        json_path_str = json_path_str.replace(",", "\\,").replace("'", "\\'")
-        # 6. Escape semicolons
-        json_path_str = json_path_str.replace(";", "\\;")
+        # Use single-quoted path to handle spaces, colons, brackets safely
+        json_path_str = escape_ffmpeg_path(job.vmaf_log)
 
         cmd = [
             "ffmpeg", "-stats", 
