@@ -7,14 +7,14 @@ try:
     from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                    QLabel, QPushButton, QComboBox, QSplitter, 
                                    QScrollArea, QGroupBox, QFileDialog, QMessageBox, 
-                                   QSystemTrayIcon, QMenu, QApplication)
+                                   QMenu, QApplication)
     from PySide6.QtCore import Slot
 except ImportError:
     from PyQt6 import QtCore, QtGui, QtWidgets
     from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                  QLabel, QPushButton, QComboBox, QSplitter, 
                                  QScrollArea, QGroupBox, QFileDialog, QMessageBox, 
-                                 QSystemTrayIcon, QMenu, QApplication)
+                                 QMenu, QApplication)
     from PyQt6.QtCore import pyqtSlot as Slot
 
 from config import DEFAULT_PRESETS, INPUT_GLOBS, IS_WINDOWS, DEFAULT_OUT_DIR, DEFAULT_IN_DIR
