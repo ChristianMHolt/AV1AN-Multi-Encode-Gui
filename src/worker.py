@@ -535,8 +535,8 @@ class Runner(QObject):
         threads = phys_cores
 
         # --- FIX: ESCAPE SPECIAL CHARS FOR FFMPEG FILTER ---
-        # 1. Escape backslashes first
-        json_path_str = str(job.vmaf_log.resolve()).replace("\\", "\\\\")
+        # 1. Convert to forward slashes
+        json_path_str = str(job.vmaf_log.resolve()).replace("\\", "/")
         # 2. Escape ':' because it separates filter options
         json_path_str = json_path_str.replace(":", "\\:") 
         # 3. Escape '[' and ']' because they are stream specifiers in filter graphs
@@ -545,8 +545,6 @@ class Runner(QObject):
         json_path_str = json_path_str.replace(" ", "\\ ")
         # 5. Escape commas (option separators) and single quotes
         json_path_str = json_path_str.replace(",", "\\,").replace("'", "\\'")
-        # 6. Escape semicolons
-        json_path_str = json_path_str.replace(";", "\\;")
 
         cmd = [
             "ffmpeg", "-stats", 
