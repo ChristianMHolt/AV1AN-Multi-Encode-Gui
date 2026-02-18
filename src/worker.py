@@ -167,9 +167,39 @@ class SystemMonitor(QThread):
     def stop(self):
         self.running = False
 
+class ProbeWorker(QThread):
+    file_probed = Signal(object, object, object) # path, data, error
+
+    def __init__(self, files: List[Path], parent=None):
+        super().__init__(parent)
+        self.files = files
+
+    def run(self):
+        for f in self.files:
+            if not f.is_file(): continue
+            abs_path = f.resolve()
+            data = None
+            error = None
+            try:
+                si = subprocess.STARTUPINFO() if IS_WINDOWS else None
+                if IS_WINDOWS: si.dwFlags |= subprocess.STARTF_USESHOWWINDOW; si.wShowWindow = subprocess.SW_HIDE
+
+                cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                       "-show_entries", "stream=nb_frames,duration,r_frame_rate",
+                       "-show_entries", "format=duration",
+                       "-of", "json", str(abs_path)]
+
+                raw = subprocess.check_output(cmd, startupinfo=si, text=True, timeout=5)
+                data = json.loads(raw)
+            except Exception as e:
+                error = str(e)
+
+            self.file_probed.emit(abs_path, data, error)
+
 class Runner(QObject):
     job_updated = Signal(int)
     job_finished = Signal(int)
+    job_added = Signal(object)
     total_fps_changed = Signal(float)
     notify = Signal(str)
     all_jobs_completed = Signal()
@@ -207,6 +237,7 @@ class Runner(QObject):
         
         self._closing = False
         self._next_job_idx = 0
+        self._probe_workers = []
 
     def update_config(self, config: Dict[str, Any]):
         self.config = config
@@ -216,65 +247,63 @@ class Runner(QObject):
         os.makedirs(self.temp_dir, exist_ok=True)
 
     def add_files(self, files: List[Path], preset_name: str = "High Quality"):
-        new_jobs = []
-        for f in files:
-            if not f.is_file(): continue
-            base = f.stem
-            abs_path = f.resolve()
-            
-            t_frames = 0
-            debug_log = [f"--- INIT DEBUG: {f.name} ---"]
-            
-            try:
-                si = subprocess.STARTUPINFO() if IS_WINDOWS else None
-                if IS_WINDOWS: si.dwFlags |= subprocess.STARTF_USESHOWWINDOW; si.wShowWindow = subprocess.SW_HIDE
-                
-                cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", 
-                       "-show_entries", "stream=nb_frames,duration,r_frame_rate", 
-                       "-show_entries", "format=duration", 
-                       "-of", "json", str(abs_path)]
-                
-                raw = subprocess.check_output(cmd, startupinfo=si, text=True, timeout=5)
-                data = json.loads(raw)
-                stream = data.get("streams", [])[0] if data.get("streams") else {}
-                
-                if "nb_frames" in stream and stream["nb_frames"] != "N/A":
-                    t_frames = int(stream["nb_frames"])
-            except Exception as e:
-                debug_log.append(f"Probe Failed: {e}")
+        worker = ProbeWorker(files)
+        worker.file_probed.connect(lambda p, d, e: self._on_file_probed(p, d, e, preset_name))
+        worker.finished.connect(lambda: self._on_probe_finished(worker))
+        self._probe_workers.append(worker)
+        worker.start()
 
-            j = Job(
-                idx=self._next_job_idx,
-                infile=abs_path,
-                out_mkv=self.out_dir / f"{base}-svt_av1.mkv",
-                tempdir=self.temp_dir / base,
-                
-                # --- LOG PATHS ---
-                term_log=LOG_DIR / f"{base}.term.log",
-                mux_log=LOG_DIR / f"{base}.mux.log",
-                vmaf_log=LOG_DIR / f"{base}-vmaf.json", 
-                
-                preset_name=preset_name,
-                total_frames=t_frames,
-                max_retries=self.config.get("max_retries", 2),
-            )
-            
-            j.chunk_count_cache = 0
-            j.log_file_handle = None 
+    def _on_file_probed(self, abs_path, data, error, preset_name):
+        base = abs_path.stem
+        t_frames = 0
+        debug_log = [f"--- INIT DEBUG: {abs_path.name} ---"]
 
-            try: j.tempdir.mkdir(parents=True, exist_ok=True)
-            except: pass
+        if error:
+            debug_log.append(f"Probe Failed: {error}")
+        elif data:
+            stream = data.get("streams", [])[0] if data.get("streams") else {}
+            if "nb_frames" in stream and stream["nb_frames"] != "N/A":
+                try: t_frames = int(stream["nb_frames"])
+                except: pass
+
+        j = Job(
+            idx=self._next_job_idx,
+            infile=abs_path,
+            out_mkv=self.out_dir / f"{base}-svt_av1.mkv",
+            tempdir=self.temp_dir / base,
             
-            try:
-                j.log_file_handle = open(j.term_log, "w", encoding="utf-8")
-                j.log_file_handle.write("\n".join(debug_log) + "\n\n")
-            except: pass
+            # --- LOG PATHS ---
+            term_log=LOG_DIR / f"{base}.term.log",
+            mux_log=LOG_DIR / f"{base}.mux.log",
+            vmaf_log=LOG_DIR / f"{base}-vmaf.json",
             
-            self.jobs.append(j)
-            self.queue.append(self._next_job_idx)
-            new_jobs.append(j)
-            self._next_job_idx += 1
-        return new_jobs
+            preset_name=preset_name,
+            total_frames=t_frames,
+            max_retries=self.config.get("max_retries", 2),
+        )
+
+        j.chunk_count_cache = 0
+        j.log_file_handle = None
+
+        try: j.tempdir.mkdir(parents=True, exist_ok=True)
+        except: pass
+
+        try:
+            j.log_file_handle = open(j.term_log, "w", encoding="utf-8")
+            j.log_file_handle.write("\n".join(debug_log) + "\n\n")
+        except: pass
+
+        self.jobs.append(j)
+        self.queue.append(self._next_job_idx)
+        self._next_job_idx += 1
+        self.job_added.emit(j)
+        self._start_next_if_possible()
+
+    def _on_probe_finished(self, worker):
+        if worker in self._probe_workers:
+            self._probe_workers.remove(worker)
+        try: worker.deleteLater()
+        except: pass
 
     def remove_job(self, job_idx: int):
         with self.run_lock:

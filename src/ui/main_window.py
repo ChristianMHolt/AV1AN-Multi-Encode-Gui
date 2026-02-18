@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
     def connect_signals(self):
         self.runner.job_updated.connect(self.on_job_upd)
         self.runner.job_finished.connect(self.on_job_fin)
+        self.runner.job_added.connect(self.on_job_added)
         self.runner.total_fps_changed.connect(lambda f: self.lbl_fps.setText(f"FPS: {f:.1f}"))
         self.runner.shutdown_complete.connect(self.final_exit)
         self.sys_mon.stats_updated.connect(self.on_sys_upd)
@@ -152,12 +153,14 @@ class MainWindow(QMainWindow):
         if fs: self.add_to_runner([Path(f) for f in fs])
 
     def add_to_runner(self, paths):
-        jobs = self.runner.add_files(paths, self.combo_preset.currentText())
-        for j in jobs:
-            t = JobTile(j, self.runner.toggle_pause, self.rm_job, self.show_log, 
-                        self.config.get("disable_graphs", False))
-            self.tiles[j.idx] = t
-            self.job_layout.insertWidget(self.job_layout.count()-1, t)
+        self.runner.add_files(paths, self.combo_preset.currentText())
+
+    @Slot(object)
+    def on_job_added(self, j):
+        t = JobTile(j, self.runner.toggle_pause, self.rm_job, self.show_log,
+                    self.config.get("disable_graphs", False))
+        self.tiles[j.idx] = t
+        self.job_layout.insertWidget(self.job_layout.count()-1, t)
         self.upd_stats()
 
     def rm_job(self, idx):
