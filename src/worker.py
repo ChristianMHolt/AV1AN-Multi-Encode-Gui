@@ -413,6 +413,8 @@ class Runner(QObject):
         if self.queue: return
 
         with self.run_lock:
+            if any(j.status == JobStatus.VMAF for j in self.running.values()):
+                return
             active_jobs = [j for j in self.running.values() if j.status == JobStatus.RUNNING]
 
         if not active_jobs: return
