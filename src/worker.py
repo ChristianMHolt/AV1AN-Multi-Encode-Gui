@@ -48,18 +48,18 @@ def get_missing_tools() -> List[Tuple[str, str]]:
     return [(name, hint) for name, hint in tools if not check_tool(name, hint)]
 
 def _strip_lp(s: str) -> str:
-    # Regex replacement to safely remove --lp N without touching quotes/backslashes.
-    # Matches --lp followed by spaces or =, then digits.
-    # (?:^|\s) ensures we match whole words.
-    pattern = r'(?:^|\s)--lp\s*=?\s*\d+(?:\s|$)'
-    s = re.sub(pattern, ' ', s)
-    return s.strip()
-
-def path_to_str(p: Path) -> str:
-    s = str(p)
-    if IS_WINDOWS:
-        return s.replace("/", "\\")
-    return s
+    toks = shlex.split(s)
+    out = []
+    skip = False
+    for t in toks:
+        if skip:
+            skip = False
+            continue
+        if t == "--lp":
+            skip = True
+            continue
+        out.append(t)
+    return shlex.join(out)
 
 def escape_ffmpeg_path(path: Path) -> str:
     s = str(path.resolve())
@@ -247,7 +247,6 @@ class Runner(QObject):
         self._closing = False
         self._next_job_idx = 0
         self._probe_workers = []
-        self.restarting_jobs: List[Job] = []
 
     def update_config(self, config: Dict[str, Any]):
         self.config = config
@@ -409,133 +408,26 @@ class Runner(QObject):
                     self.job_updated.emit(job_idx)
                     self._rebalance_affinity()
 
-    def _check_optimization(self):
-        if self.queue: return
-
-        with self.run_lock:
-            if any(j.status == JobStatus.VMAF for j in self.running.values()):
-                return
-            active_jobs = [j for j in self.running.values() if j.status == JobStatus.RUNNING]
-
-        if not active_jobs: return
-
-        chunks = calculate_dynamic_chunks(len(active_jobs))
-
-        needs_restart = False
-        for i, job in enumerate(active_jobs):
-            if i >= len(chunks): break
-
-            chunk_size = len(chunks[i])
-            preset = DEFAULT_PRESETS.get(job.preset_name, DEFAULT_PRESETS["High Quality"])
-            opt_workers, opt_threads = calculate_optimal_workers(chunk_size, preset.get("workers", "auto"))
-
-            if job.initial_workers != opt_workers or job.initial_threads != opt_threads:
-                needs_restart = True
-                break
-
-        if needs_restart:
-            self.notify.emit("Optimizing CPU usage (Restarting jobs)...")
-            self._restart_running_jobs()
-
-    def _restart_running_jobs(self):
-        with self.run_lock:
-            to_restart = [idx for idx, j in self.running.items() if j.status == JobStatus.RUNNING]
-
-            for idx in to_restart:
-                job = self.running[idx]
-                del self.running[idx]
-
-                job.status = JobStatus.RESTARTING
-                self.restarting_jobs.append(job)
-
-                if job.proc:
-                    _safe_kill(job.proc)
-
-                self.job_updated.emit(idx)
-
-    def _create_svt_shim(self, job: Job) -> Path:
-        """Creates a wrapper script to intercept SvtAv1EncApp calls and force --output."""
-        shim_dir = job.tempdir / "shim"
-        shim_dir.mkdir(parents=True, exist_ok=True)
-
-        # Get absolute path to real SVT
-        real_svt = str(Path(self.config["svt_path"]).resolve())
-        # Escape backslashes for python string literal
-        real_svt_escaped = real_svt.replace("\\", "\\\\")
-
-        shim_py = shim_dir / "svt_shim.py"
-        with open(shim_py, "w", encoding="utf-8") as f:
-            f.write(f"""
-import sys
-import subprocess
-
-def main():
-    real_exe = "{real_svt_escaped}"
-    args = sys.argv[1:]
-    new_args = []
-    i = 0
-    while i < len(args):
-        if args[i] == '-b':
-            new_args.append('--output')
-        else:
-            new_args.append(args[i])
-        i += 1
-
-    # Run the real executable
-    try:
-        sys.exit(subprocess.call([real_exe] + new_args))
-    except Exception as e:
-        print(f"Shim Error: {{e}}", file=sys.stderr)
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-""")
-
-        # Create batch file for Windows
-        if IS_WINDOWS:
-            bat_path = shim_dir / "SvtAv1EncApp.bat"
-            with open(bat_path, "w", encoding="utf-8") as f:
-                f.write(f'@python "{shim_py}" %*')
-        else:
-            # For POSIX, create a shell script
-            sh_path = shim_dir / "SvtAv1EncApp"
-            with open(sh_path, "w", encoding="utf-8") as f:
-                f.write(f'#!/bin/sh\npython3 "{shim_py}" "$@"')
-            sh_path.chmod(sh_path.stat().st_mode | 0o111)
-
-        return shim_dir
-
     def _build_av1an_args(self, job: Job, assigned_chunk: List[int]) -> List[str]:
         preset = DEFAULT_PRESETS.get(job.preset_name, DEFAULT_PRESETS["High Quality"])
         chunk_size = len(assigned_chunk)
         workers, threads = calculate_optimal_workers(chunk_size, preset.get("workers", "auto"))
-        job.initial_workers = workers
-        job.initial_threads = threads
-
         svt_opts = job.custom_svt_opts or preset["svt_opts"]
         svt_cli = _strip_lp(svt_opts)
-
-        # Append --lp safely without re-parsing/re-quoting
-        svt_cli = f"{svt_cli} --lp {threads}".strip()
-
-        # Create shim to fix arguments
-        shim_dir = self._create_svt_shim(job)
-
-        # Update PATH for this process
-        current_path = self.proc_env.get("PATH", "")
-        self.proc_env["PATH"] = str(shim_dir) + os.pathsep + current_path
+        svt_cli = shlex.join(shlex.split(svt_cli) + ["--lp", str(threads)])
+        def to_posix(p):
+            return str(p).replace("\\", "/")
 
         log_file = LOG_DIR / f"av1an.log.{datetime.date.today()}"
 
         args = [
             str(DEFAULT_AV1AN_PATH),
-            "--log-file", path_to_str(log_file),
-            "-i", path_to_str(job.infile),
-            "--temp", path_to_str(job.tempdir),
-            "-o", path_to_str(job.out_mkv),
+            "--log-file", to_posix(log_file),
+            "-i", to_posix(job.infile),          
+            "--temp", to_posix(job.tempdir),
+            "-o", to_posix(job.out_mkv),         
             "-e", "svt-av1",
-            "-v", svt_cli,
+            "-v", svt_cli,                  
             "-w", str(workers),             
             "-m", "ffms2",
             "--pix-format", "yuv420p10le",  
@@ -547,12 +439,6 @@ if __name__ == "__main__":
 
     def _rebalance_affinity(self):
         if not self.running: return
-
-        # VMAF Safeguard: Do not rebalance if any VMAF job is active.
-        # This prevents CPU resources from being stolen from the intensive VMAF process.
-        if any(j.status == JobStatus.VMAF for j in self.running.values()):
-            return
-
         active_jobs = [j for j in self.running.values() if j.status == JobStatus.RUNNING and j.proc]
         if not active_jobs: return
         chunks = calculate_dynamic_chunks(len(active_jobs))
@@ -565,19 +451,14 @@ if __name__ == "__main__":
     def _start_next_if_possible(self):
         if self._closing: return
         with self.run_lock:
-            active_count = len(self.queue) + len(self.running) + len(self.restarting_jobs)
+            active_count = len(self.queue) + len(self.running)
             dynamic_limit = max(1, min(active_count, MAX_JOBS_CAP))
             started_new = False
             while len(self.running) < dynamic_limit and self.queue:
                 idx = self.queue.pop(0)
                 job = self.jobs[idx]
-
-                temp_chunks = calculate_dynamic_chunks(dynamic_limit)
-                if len(self.running) < len(temp_chunks):
-                    my_chunk = temp_chunks[len(self.running)]
-                else:
-                    my_chunk = temp_chunks[-1]
-
+                temp_chunks = calculate_dynamic_chunks(len(self.running) + 1)
+                my_chunk = temp_chunks[-1]
                 args = self._build_av1an_args(job, my_chunk)
                 
                 job.fps_hist.clear()
@@ -727,24 +608,6 @@ if __name__ == "__main__":
             self._finalize(job)
 
     def _tick(self):
-        if self.restarting_jobs:
-            still_running = []
-            requeued_any = False
-            for job in self.restarting_jobs:
-                if job.proc and job.proc.poll() is None:
-                    still_running.append(job)
-                else:
-                    job.status = JobStatus.QUEUED
-                    job.proc = None
-                    if job.idx not in self.queue:
-                        self.queue.insert(0, job.idx)
-                        requeued_any = True
-                    self.job_updated.emit(job.idx)
-
-            self.restarting_jobs = still_running
-            if requeued_any:
-                self._start_next_if_possible()
-
         self._start_next_if_possible()
         finished = []
         rebalance = False
@@ -813,8 +676,6 @@ if __name__ == "__main__":
         if not self.running and not self.queue:
              if any(j.status == JobStatus.COMPLETED for j in self.jobs):
                  self.all_jobs_completed.emit()
-
-        self._check_optimization()
 
     def _update_progress_from_disk(self, job: Job):
         if job.term_log.exists():
