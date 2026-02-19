@@ -48,7 +48,7 @@ def get_missing_tools() -> List[Tuple[str, str]]:
     return [(name, hint) for name, hint in tools if not check_tool(name, hint)]
 
 def _strip_lp(s: str) -> str:
-    toks = shlex.split(s)
+    toks = shlex.split(s, posix=not IS_WINDOWS)
     out = []
     skip = False
     for t in toks:
