@@ -47,18 +47,14 @@ def get_missing_tools() -> List[Tuple[str, str]]:
     ]
     return [(name, hint) for name, hint in tools if not check_tool(name, hint)]
 
-def split_args(s: str) -> List[str]:
-    """Platform-aware argument splitting."""
-    return shlex.split(s, posix=not IS_WINDOWS)
-
-def join_args(args: List[str]) -> str:
-    """Platform-aware argument joining."""
-    if IS_WINDOWS:
-        return subprocess.list2cmdline(args)
-    return shlex.join(args)
-
 def _strip_lp(s: str) -> str:
-    toks = split_args(s)
+    # On Windows, backslashes in paths (e.g. C:\foo) are not escapes.
+    # But shlex.split (POSIX mode) treats them as escapes.
+    # We double them so shlex.split preserves them as literal backslashes.
+    if IS_WINDOWS:
+        s = s.replace("\\", "\\\\")
+
+    toks = shlex.split(s)
     out = []
     skip = False
     for t in toks:
@@ -69,7 +65,7 @@ def _strip_lp(s: str) -> str:
             skip = True
             continue
         out.append(t)
-    return join_args(out)
+    return shlex.join(out)
 
 def escape_ffmpeg_path(path: Path) -> str:
     s = str(path.resolve())
@@ -473,10 +469,13 @@ class Runner(QObject):
         svt_opts = job.custom_svt_opts or preset["svt_opts"]
         svt_cli = _strip_lp(svt_opts)
 
-        # Build final SVT CLI string safely
-        current_args = split_args(svt_cli)
+        # Re-parse safely to append arguments
+        # We use the same Windows-aware split logic if needed,
+        # but _strip_lp already returns a safe shlex.join string (POSIX escaped).
+        # So standard shlex.split is correct here.
+        current_args = shlex.split(svt_cli)
         current_args.extend(["--lp", str(threads)])
-        svt_cli = join_args(current_args)
+        svt_cli = shlex.join(current_args)
 
         def to_posix(p):
             return str(p).replace("\\", "/")

@@ -56,16 +56,14 @@ class TestBuildAv1anArgs(unittest.TestCase):
 
     @patch('worker.IS_WINDOWS', True)
     def test_strip_lp_windows_simulation(self):
+        # On Windows, backslashes should be preserved.
         s = r"--my-path C:\foo\bar"
         res = _strip_lp(s)
 
-        # On Windows (mocked IS_WINDOWS=True), list2cmdline is used.
-        # list2cmdline does NOT quote safe strings (no spaces).
-        # So "C:\foo\bar" is returned as-is.
-        # This differs from shlex.join which puts single quotes.
-        # This is the desired behavior for Windows apps (MSVCRT).
+        # shlex.join logic: quotes items that contain spaces or special chars (like backslashes in POSIX)
+        # We expect shlex.join to escape backslashes: 'C:\\foo\\bar'
 
-        expected = r"--my-path C:\foo\bar"
+        expected = r"--my-path 'C:\foo\bar'"
         self.assertEqual(res, expected)
 
     def test_build_args_basic(self):
