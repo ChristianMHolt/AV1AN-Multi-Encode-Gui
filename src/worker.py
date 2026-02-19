@@ -106,15 +106,14 @@ def calculate_optimal_workers(chunk_size: int, preset_workers: Any) -> Tuple[int
         return 1, chunk_size
 
 def _set_process_affinity(pid: int, cpus: List[int]) -> None:
-    if not IS_WINDOWS or not cpus: return
+    if not IS_WINDOWS or not cpus or not psutil: return
     try:
-        if psutil:
-            p = psutil.Process(pid)
-            p.cpu_affinity(cpus)
-            for child in p.children(recursive=True):
-                try: child.cpu_affinity(cpus)
-                except: pass
-    except Exception: pass
+        p = psutil.Process(pid)
+        p.cpu_affinity(cpus)
+        for child in p.children(recursive=True):
+            try: child.cpu_affinity(cpus)
+            except psutil.Error: pass
+    except psutil.Error: pass
 
 def _safe_kill(proc: subprocess.Popen):
     try: proc.kill()
@@ -131,9 +130,9 @@ def _suspend_tree(root_pid: int) -> bool:
         root = psutil.Process(root_pid)
         for p in reversed([root] + root.children(recursive=True)):
             try: p.suspend()
-            except: pass
+            except psutil.Error: pass
         return True
-    except: return False
+    except psutil.Error: return False
 
 def _resume_tree(root_pid: int) -> bool:
     if not psutil: return False
@@ -141,9 +140,9 @@ def _resume_tree(root_pid: int) -> bool:
         root = psutil.Process(root_pid)
         for p in [root] + root.children(recursive=True):
             try: p.resume()
-            except: pass
+            except psutil.Error: pass
         return True
-    except: return False
+    except psutil.Error: return False
 
 # --- Classes ---
 
