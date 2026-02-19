@@ -14,7 +14,6 @@ class JobStatus(Enum):
     MUXING = "Muxing"
     VMAF = "VMAF"
     PAUSED = "Paused"
-    RESTARTING = "Restarting"
     COMPLETED = "Completed"
     FAILED = "Failed"
     CANCELLED = "Cancelled"
@@ -65,8 +64,7 @@ class Job:
     status_text: str = ""
     retry_count: int = 0
     max_retries: int = 2
-    initial_concurrent_count: int = 0
-
+    
     # VMAF Stats
     vmaf_score: float = 0.0
     vmaf_1_percent: float = 0.0
