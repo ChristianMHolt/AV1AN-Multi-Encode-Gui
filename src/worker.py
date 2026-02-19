@@ -247,6 +247,7 @@ class Runner(QObject):
         self._closing = False
         self._next_job_idx = 0
         self._probe_workers = []
+        self._restart_pending = []
 
     def update_config(self, config: Dict[str, Any]):
         self.config = config
@@ -461,6 +462,7 @@ class Runner(QObject):
                 my_chunk = temp_chunks[-1]
                 args = self._build_av1an_args(job, my_chunk)
                 
+                job.initial_concurrent_count = dynamic_limit
                 job.fps_hist.clear()
                 job.ema_fps = None
                 job.pct = 0.0
@@ -608,6 +610,31 @@ class Runner(QObject):
             self._finalize(job)
 
     def _tick(self):
+        if self._restart_pending:
+            all_stopped = True
+            with self.run_lock:
+                for idx in self._restart_pending:
+                    job = self.running.get(idx)
+                    if job and job.proc and job.proc.poll() is None:
+                        all_stopped = False
+                        break
+
+            if all_stopped:
+                with self.run_lock:
+                    pending = list(self._restart_pending)
+                    self._restart_pending.clear()
+                    pending.sort(reverse=True)
+                    for idx in pending:
+                        if idx in self.running:
+                            job = self.running[idx]
+                            del self.running[idx]
+                            job.status = JobStatus.QUEUED
+                            job.proc = None
+                            self.queue.insert(0, idx)
+                            self.job_updated.emit(idx)
+                self._start_next_if_possible()
+            return
+
         self._start_next_if_possible()
         finished = []
         rebalance = False
@@ -671,6 +698,8 @@ class Runner(QObject):
                 
             if rebalance:
                 self._rebalance_affinity()
+
+        self._check_optimization()
                 
         self._emit_total_fps()
         if not self.running and not self.queue:
@@ -729,6 +758,33 @@ class Runner(QObject):
                         data = json.load(f)
                         job.chunk_count_cache = len(data)
                 except: pass
+
+    def _check_optimization(self):
+        if self.queue or self._restart_pending:
+            return
+
+        # Ensure resume is enabled to avoid data loss
+        if not self.config.get("resume", True):
+             return
+
+        with self.run_lock:
+            if any(j.status == JobStatus.VMAF for j in self.running.values()): return
+            if any(j.status == JobStatus.PAUSED for j in self.running.values()): return
+
+            current_limit = max(1, min(len(self.running), MAX_JOBS_CAP))
+            candidates = [j for j in self.running.values() if j.status == JobStatus.RUNNING]
+            if not candidates: return
+
+            max_initial = max(j.initial_concurrent_count for j in candidates)
+
+            if current_limit < max_initial:
+                self._restart_pending = [j.idx for j in candidates]
+                for idx in self._restart_pending:
+                    job = self.running[idx]
+                    job.status = JobStatus.RESTARTING
+                    _safe_kill(job.proc)
+                    self.job_updated.emit(idx)
+                self.notify.emit("Optimizing CPU usage (Restarting jobs)...")
 
     def _emit_total_fps(self):
         total = sum(j.fps_hist[-1] for j in self.jobs if j.status == JobStatus.RUNNING and j.fps_hist)
