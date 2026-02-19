@@ -1,15 +1,9 @@
 import time
 from typing import Callable
-try:
-    from PySide6 import QtCore, QtGui, QtWidgets
-    from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-                                   QProgressBar, QPushButton, QDialog, QComboBox, 
-                                   QLineEdit, QTextEdit, QTabWidget)
-except ImportError:
-    from PyQt6 import QtCore, QtGui, QtWidgets
-    from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, 
-                                 QProgressBar, QPushButton, QDialog, QComboBox, 
-                                 QLineEdit, QTextEdit, QTabWidget)
+from .qt import (QtCore, QtGui, QtWidgets,
+                 QFrame, QVBoxLayout, QHBoxLayout, QLabel,
+                 QProgressBar, QPushButton, QDialog, QComboBox,
+                 QLineEdit, QTextEdit, QTabWidget)
 
 from config import DEFAULT_PRESETS
 from models import Job, JobStatus

@@ -3,20 +3,11 @@ import signal
 import csv
 import collections
 from pathlib import Path
-try:
-    from PySide6 import QtCore, QtGui, QtWidgets
-    from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                                   QLabel, QPushButton, QComboBox, QSplitter, 
-                                   QScrollArea, QGroupBox, QFileDialog, QMessageBox, 
-                                   QMenu, QApplication)
-    from PySide6.QtCore import Slot
-except ImportError:
-    from PyQt6 import QtCore, QtGui, QtWidgets
-    from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                                 QLabel, QPushButton, QComboBox, QSplitter, 
-                                 QScrollArea, QGroupBox, QFileDialog, QMessageBox, 
-                                 QMenu, QApplication)
-    from PyQt6.QtCore import pyqtSlot as Slot
+from .qt import (QtCore, QtGui, QtWidgets,
+                 QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                 QLabel, QPushButton, QComboBox, QSplitter,
+                 QScrollArea, QGroupBox, QFileDialog, QMessageBox,
+                 QMenu, QApplication, Slot)
 
 from config import DEFAULT_PRESETS, INPUT_GLOBS, IS_WINDOWS, DEFAULT_OUT_DIR, DEFAULT_IN_DIR
 from worker import Runner, SystemMonitor, get_missing_tools, format_size

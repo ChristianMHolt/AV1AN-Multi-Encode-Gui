@@ -1,17 +1,9 @@
 import os
 import json
-try:
-    from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                                   QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit, 
-                                   QCheckBox, QSpinBox, QComboBox, QFileDialog, QListWidget,
-                                   QListWidgetItem, QMessageBox)
-    from PySide6.QtCore import QSettings
-except ImportError:
-    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                                 QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit, 
-                                 QCheckBox, QSpinBox, QComboBox, QFileDialog, QListWidget,
-                                 QListWidgetItem, QMessageBox)
-    from PyQt6.QtCore import QSettings
+from .qt import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+                 QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit,
+                 QCheckBox, QSpinBox, QComboBox, QFileDialog, QListWidget,
+                 QListWidgetItem, QMessageBox, QSettings)
 
 from config import (
     DEFAULT_OUT_DIR, DEFAULT_IN_DIR, DEFAULT_SVT_PATH, DEFAULT_TEMP_DIR, USE_CHUNK_METHOD
