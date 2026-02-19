@@ -48,24 +48,12 @@ def get_missing_tools() -> List[Tuple[str, str]]:
     return [(name, hint) for name, hint in tools if not check_tool(name, hint)]
 
 def _strip_lp(s: str) -> str:
-    # On Windows, backslashes in paths (e.g. C:\foo) are not escapes.
-    # But shlex.split (POSIX mode) treats them as escapes.
-    # We double them so shlex.split preserves them as literal backslashes.
-    if IS_WINDOWS:
-        s = s.replace("\\", "\\\\")
-
-    toks = shlex.split(s)
-    out = []
-    skip = False
-    for t in toks:
-        if skip:
-            skip = False
-            continue
-        if t == "--lp":
-            skip = True
-            continue
-        out.append(t)
-    return shlex.join(out)
+    # Regex replacement to safely remove --lp N without touching quotes/backslashes.
+    # Matches --lp followed by spaces or =, then digits.
+    # (?:^|\s) ensures we match whole words.
+    pattern = r'(?:^|\s)--lp\s*=?\s*\d+(?:\s|$)'
+    s = re.sub(pattern, ' ', s)
+    return s.strip()
 
 def escape_ffmpeg_path(path: Path) -> str:
     s = str(path.resolve())
@@ -469,13 +457,8 @@ class Runner(QObject):
         svt_opts = job.custom_svt_opts or preset["svt_opts"]
         svt_cli = _strip_lp(svt_opts)
 
-        # Re-parse safely to append arguments
-        # We use the same Windows-aware split logic if needed,
-        # but _strip_lp already returns a safe shlex.join string (POSIX escaped).
-        # So standard shlex.split is correct here.
-        current_args = shlex.split(svt_cli)
-        current_args.extend(["--lp", str(threads)])
-        svt_cli = shlex.join(current_args)
+        # Append --lp safely without re-parsing/re-quoting
+        svt_cli = f"{svt_cli} --lp {threads}".strip()
 
         def to_posix(p):
             return str(p).replace("\\", "/")
