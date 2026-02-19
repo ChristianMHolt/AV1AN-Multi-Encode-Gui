@@ -255,14 +255,14 @@ class Runner(QObject):
         self.temp_dir = Path(config["temp_dir"])
         os.makedirs(self.temp_dir, exist_ok=True)
 
-    def add_files(self, files: List[Path], preset_name: str = "High Quality"):
+    def add_files(self, files: List[Path], preset_name: str = "High Quality", custom_opts: Optional[str] = None):
         worker = ProbeWorker(files)
-        worker.file_probed.connect(lambda p, d, e: self._on_file_probed(p, d, e, preset_name))
+        worker.file_probed.connect(lambda p, d, e: self._on_file_probed(p, d, e, preset_name, custom_opts))
         worker.finished.connect(lambda: self._on_probe_finished(worker))
         self._probe_workers.append(worker)
         worker.start()
 
-    def _on_file_probed(self, abs_path, data, error, preset_name):
+    def _on_file_probed(self, abs_path, data, error, preset_name, custom_opts=None):
         base = abs_path.stem
         t_frames = 0
         debug_log = [f"--- INIT DEBUG: {abs_path.name} ---"]
@@ -312,6 +312,7 @@ class Runner(QObject):
             vmaf_log=LOG_DIR / f"{base}-vmaf.json",
             
             preset_name=preset_name,
+            custom_svt_opts=custom_opts,
             total_frames=t_frames,
             max_retries=self.config.get("max_retries", 2),
         )

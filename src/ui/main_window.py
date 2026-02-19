@@ -158,7 +158,13 @@ class MainWindow(QMainWindow):
         if fs: self.add_to_runner([Path(f) for f in fs])
 
     def add_to_runner(self, paths):
-        self.runner.add_files(paths, self.combo_preset.currentText())
+        preset_name = self.combo_preset.currentText()
+        custom_opts = None
+        custom_presets = self.settings_dlg.get_custom_presets()
+        if preset_name in custom_presets:
+            custom_opts = custom_presets[preset_name].get("svt_opts")
+
+        self.runner.add_files(paths, preset_name, custom_opts)
 
     @Slot(object)
     def on_job_added(self, j):
