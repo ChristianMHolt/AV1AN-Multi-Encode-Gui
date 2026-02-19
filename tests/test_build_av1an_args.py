@@ -52,41 +52,20 @@ class TestBuildAv1anArgs(unittest.TestCase):
         self.assertEqual(res, "--preset 6 --crf 20")
 
     def test_strip_lp_windows_path_handling(self):
-        # We need to simulate IS_WINDOWS=True for this test logic to be exercised
-        # but _strip_lp imports IS_WINDOWS directly.
-        # Since I can't patch the constant easily in the imported module for just this test without reload,
-        # I will check what the CURRENT environment is.
-        # If running on Linux (IS_WINDOWS=False), shlex.split(posix=True) is used.
-        # If running on Windows (IS_WINDOWS=True), shlex.split(posix=False) is used.
         pass
 
     @patch('worker.IS_WINDOWS', True)
     def test_strip_lp_windows_simulation(self):
-        # This patch works because I am patching 'worker.IS_WINDOWS' which is where _strip_lp looks.
-
         s = r"--my-path C:\foo\bar"
-        # On Windows (posix=False), backslashes are preserved.
         res = _strip_lp(s)
 
-        # shlex.join logic: quotes items that contain spaces or special chars.
-        # '--my-path' is safe, so it is NOT quoted.
-        # 'C:\foo\bar' is safe, so it is NOT quoted?
-        # Wait, backslash is safe? Yes, in shlex.join.
-        # BUT shlex.join on POSIX mode (default) treats backslash as special?
-        # shlex.join output is shell-escaped string.
-        # If input is 'C:\foo\bar' (literal backslashes).
-        # shlex.quote('C:\foo\bar') -> "'C:\\foo\\bar'" (single quotes, doubled backslashes?)
-        # Let's check Python's shlex.quote logic.
-        # It puts single quotes around it. Inside single quotes, backslash is literal.
-        # So 'C:\foo\bar' -> "'C:\foo\bar'"?
-        # Wait, result was: "--my-path 'C:\\foo\\bar'"
-        # Ah, because `shlex.quote` escapes backslashes only if needed?
-        # Actually, shlex.quote on Linux:
-        # 'C:\foo\bar' -> "'C:\\foo\\bar'"? No.
-        # Let's just assert exactly what shlex produced in the failure,
-        # because the failure showed the preserved path structure which is what matters.
+        # On Windows (mocked IS_WINDOWS=True), list2cmdline is used.
+        # list2cmdline does NOT quote safe strings (no spaces).
+        # So "C:\foo\bar" is returned as-is.
+        # This differs from shlex.join which puts single quotes.
+        # This is the desired behavior for Windows apps (MSVCRT).
 
-        expected = r"--my-path 'C:\foo\bar'"
+        expected = r"--my-path C:\foo\bar"
         self.assertEqual(res, expected)
 
     def test_build_args_basic(self):
