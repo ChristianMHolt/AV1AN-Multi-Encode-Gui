@@ -462,14 +462,18 @@ class Runner(QObject):
 
         log_file = LOG_DIR / f"av1an.log.{datetime.date.today()}"
 
+        # Construct custom encoder command to force --output instead of -b
+        # and to ensure full control over argument parsing.
+        # shlex.quote is safe here because av1an parses the command string.
+        enc_cmd = f"{shlex.quote(str(self.config['svt_path']))} {svt_cli} -i stdin --output {{}}"
+
         args = [
             str(DEFAULT_AV1AN_PATH),
             "--log-file", str(log_file),
             "-i", str(job.infile),
             "--temp", str(job.tempdir),
             "-o", str(job.out_mkv),
-            "-e", "svt-av1",
-            "-v", svt_cli,                  
+            "-e", enc_cmd,
             "-w", str(workers),             
             "-m", "ffms2",
             "--pix-format", "yuv420p10le",  
