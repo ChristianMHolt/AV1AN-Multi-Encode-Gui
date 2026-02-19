@@ -25,6 +25,7 @@ class MainWindow(QMainWindow):
         
         # Init Settings
         self.settings_dlg = SettingsDialog(self)
+        self.settings = QtCore.QSettings("AV1Runner", "EncoderPro")
         self.config = self.settings_dlg.get_config()
         
         # Check Tools
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         
         self.combo_preset = QComboBox()
         self._load_presets()
+        self.combo_preset.currentTextChanged.connect(self._save_preset_selection)
         h.addWidget(QLabel("Preset:"))
         h.addWidget(self.combo_preset)
         
@@ -232,6 +234,9 @@ class MainWindow(QMainWindow):
 
     def _load_presets(self):
         current = self.combo_preset.currentText()
+        if not current:
+            current = self.settings.value("last_preset", "High Quality")
+
         self.combo_preset.clear()
 
         presets = list(DEFAULT_PRESETS.keys())
@@ -244,6 +249,10 @@ class MainWindow(QMainWindow):
             self.combo_preset.setCurrentText(current)
         else:
             self.combo_preset.setCurrentText("High Quality")
+
+    def _save_preset_selection(self, text):
+        if text:
+            self.settings.setValue("last_preset", text)
 
     def show_preset_info(self):
         name = self.combo_preset.currentText()
