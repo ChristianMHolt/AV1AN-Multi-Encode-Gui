@@ -69,14 +69,14 @@ class TestBuildAv1anArgs(unittest.TestCase):
         with patch("worker.calculate_optimal_workers", return_value=(4, 2)):
              args = self.runner._build_av1an_args(job, [0, 1, 2, 3])
 
-        e_idx = args.index("-e")
-        e_arg = args[e_idx + 1]
+        # We reverted to -e svt-av1 -v args
+        v_idx = args.index("-v")
+        v_arg = args[v_idx + 1]
 
-        # 'svt' isn't quoted by shlex.quote because it's simple string
-        self.assertIn("svt", e_arg)
-        self.assertIn("--lp 2", e_arg)
-        self.assertIn("-i stdin", e_arg)
-        self.assertIn("--output {}", e_arg)
+        self.assertIn("--lp 2", v_arg)
+
+        e_idx = args.index("-e")
+        self.assertEqual(args[e_idx + 1], "svt-av1")
 
         w_idx = args.index("-w")
         self.assertEqual(args[w_idx + 1], "4")
