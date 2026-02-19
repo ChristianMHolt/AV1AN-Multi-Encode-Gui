@@ -14,10 +14,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from queue import Empty
 
-try:
-    from PySide6.QtCore import QObject, Signal, QThread, QTimer
-except ImportError:
-    from PyQt6.QtCore import QObject, pyqtSignal as Signal, QThread, QTimer
+from ui.qt_core import QObject, Signal, QThread, QTimer
 
 try:
     import psutil

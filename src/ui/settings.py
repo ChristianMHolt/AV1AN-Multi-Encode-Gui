@@ -1,4 +1,3 @@
-import os
 import json
 from .qt import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                  QTabWidget, QWidget, QGroupBox, QLabel, QLineEdit,
