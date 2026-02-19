@@ -17,6 +17,7 @@ class JobStatus(Enum):
     COMPLETED = "Completed"
     FAILED = "Failed"
     CANCELLED = "Cancelled"
+    RESTARTING = "Restarting"
 
 @dataclass
 class CpuGroup:
@@ -39,6 +40,9 @@ class Job:
     preset_name: str = "High Quality"
     custom_svt_opts: Optional[str] = None
     
+    initial_workers: int = 0
+    initial_threads: int = 0
+
     # Runtime State
     total_frames: int = 0
     frames_done: int = 0

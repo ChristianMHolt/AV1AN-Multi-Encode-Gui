@@ -247,6 +247,7 @@ class Runner(QObject):
         self._closing = False
         self._next_job_idx = 0
         self._probe_workers = []
+        self.restarting_jobs: List[Job] = []
 
     def update_config(self, config: Dict[str, Any]):
         self.config = config
@@ -408,10 +409,55 @@ class Runner(QObject):
                     self.job_updated.emit(job_idx)
                     self._rebalance_affinity()
 
+    def _check_optimization(self):
+        if self.queue: return
+
+        with self.run_lock:
+            active_jobs = [j for j in self.running.values() if j.status == JobStatus.RUNNING]
+
+        if not active_jobs: return
+
+        chunks = calculate_dynamic_chunks(len(active_jobs))
+
+        needs_restart = False
+        for i, job in enumerate(active_jobs):
+            if i >= len(chunks): break
+
+            chunk_size = len(chunks[i])
+            preset = DEFAULT_PRESETS.get(job.preset_name, DEFAULT_PRESETS["High Quality"])
+            opt_workers, opt_threads = calculate_optimal_workers(chunk_size, preset.get("workers", "auto"))
+
+            if job.initial_workers != opt_workers or job.initial_threads != opt_threads:
+                needs_restart = True
+                break
+
+        if needs_restart:
+            self.notify.emit("Optimizing CPU usage (Restarting jobs)...")
+            self._restart_running_jobs()
+
+    def _restart_running_jobs(self):
+        with self.run_lock:
+            to_restart = [idx for idx, j in self.running.items() if j.status == JobStatus.RUNNING]
+
+            for idx in to_restart:
+                job = self.running[idx]
+                del self.running[idx]
+
+                job.status = JobStatus.RESTARTING
+                self.restarting_jobs.append(job)
+
+                if job.proc:
+                    _safe_kill(job.proc)
+
+                self.job_updated.emit(idx)
+
     def _build_av1an_args(self, job: Job, assigned_chunk: List[int]) -> List[str]:
         preset = DEFAULT_PRESETS.get(job.preset_name, DEFAULT_PRESETS["High Quality"])
         chunk_size = len(assigned_chunk)
         workers, threads = calculate_optimal_workers(chunk_size, preset.get("workers", "auto"))
+        job.initial_workers = workers
+        job.initial_threads = threads
+
         svt_opts = job.custom_svt_opts or preset["svt_opts"]
         svt_cli = _strip_lp(svt_opts)
         svt_cli = shlex.join(shlex.split(svt_cli) + ["--lp", str(threads)])
@@ -451,14 +497,19 @@ class Runner(QObject):
     def _start_next_if_possible(self):
         if self._closing: return
         with self.run_lock:
-            active_count = len(self.queue) + len(self.running)
+            active_count = len(self.queue) + len(self.running) + len(self.restarting_jobs)
             dynamic_limit = max(1, min(active_count, MAX_JOBS_CAP))
             started_new = False
             while len(self.running) < dynamic_limit and self.queue:
                 idx = self.queue.pop(0)
                 job = self.jobs[idx]
-                temp_chunks = calculate_dynamic_chunks(len(self.running) + 1)
-                my_chunk = temp_chunks[-1]
+
+                temp_chunks = calculate_dynamic_chunks(dynamic_limit)
+                if len(self.running) < len(temp_chunks):
+                    my_chunk = temp_chunks[len(self.running)]
+                else:
+                    my_chunk = temp_chunks[-1]
+
                 args = self._build_av1an_args(job, my_chunk)
                 
                 job.fps_hist.clear()
@@ -608,6 +659,24 @@ class Runner(QObject):
             self._finalize(job)
 
     def _tick(self):
+        if self.restarting_jobs:
+            still_running = []
+            requeued_any = False
+            for job in self.restarting_jobs:
+                if job.proc and job.proc.poll() is None:
+                    still_running.append(job)
+                else:
+                    job.status = JobStatus.QUEUED
+                    job.proc = None
+                    if job.idx not in self.queue:
+                        self.queue.insert(0, job.idx)
+                        requeued_any = True
+                    self.job_updated.emit(job.idx)
+
+            self.restarting_jobs = still_running
+            if requeued_any:
+                self._start_next_if_possible()
+
         self._start_next_if_possible()
         finished = []
         rebalance = False
@@ -676,6 +745,8 @@ class Runner(QObject):
         if not self.running and not self.queue:
              if any(j.status == JobStatus.COMPLETED for j in self.jobs):
                  self.all_jobs_completed.emit()
+
+        self._check_optimization()
 
     def _update_progress_from_disk(self, job: Job):
         if job.term_log.exists():
