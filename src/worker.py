@@ -460,17 +460,14 @@ class Runner(QObject):
         # Append --lp safely without re-parsing/re-quoting
         svt_cli = f"{svt_cli} --lp {threads}".strip()
 
-        def to_posix(p):
-            return str(p).replace("\\", "/")
-
         log_file = LOG_DIR / f"av1an.log.{datetime.date.today()}"
 
         args = [
             str(DEFAULT_AV1AN_PATH),
-            "--log-file", to_posix(log_file),
-            "-i", to_posix(job.infile),          
-            "--temp", to_posix(job.tempdir),
-            "-o", to_posix(job.out_mkv),         
+            "--log-file", str(log_file),
+            "-i", str(job.infile),
+            "--temp", str(job.tempdir),
+            "-o", str(job.out_mkv),
             "-e", "svt-av1",
             "-v", svt_cli,                  
             "-w", str(workers),             
