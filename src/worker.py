@@ -55,6 +55,12 @@ def _strip_lp(s: str) -> str:
     s = re.sub(pattern, ' ', s)
     return s.strip()
 
+def path_to_str(p: Path) -> str:
+    s = str(p)
+    if IS_WINDOWS:
+        return s.replace("/", "\\")
+    return s
+
 def escape_ffmpeg_path(path: Path) -> str:
     s = str(path.resolve())
     # 1. Escape backslashes first (because \ is escape char)
@@ -462,18 +468,14 @@ class Runner(QObject):
 
         log_file = LOG_DIR / f"av1an.log.{datetime.date.today()}"
 
-        # Construct custom encoder command to force --output instead of -b
-        # and to ensure full control over argument parsing.
-        # shlex.quote is safe here because av1an parses the command string.
-        enc_cmd = f"{shlex.quote(str(self.config['svt_path']))} {svt_cli} -i stdin --output {{}}"
-
         args = [
             str(DEFAULT_AV1AN_PATH),
-            "--log-file", str(log_file),
-            "-i", str(job.infile),
-            "--temp", str(job.tempdir),
-            "-o", str(job.out_mkv),
-            "-e", enc_cmd,
+            "--log-file", path_to_str(log_file),
+            "-i", path_to_str(job.infile),
+            "--temp", path_to_str(job.tempdir),
+            "-o", path_to_str(job.out_mkv),
+            "-e", "svt-av1",
+            "-v", svt_cli,
             "-w", str(workers),             
             "-m", "ffms2",
             "--pix-format", "yuv420p10le",  
