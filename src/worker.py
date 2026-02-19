@@ -453,6 +453,59 @@ class Runner(QObject):
 
                 self.job_updated.emit(idx)
 
+    def _create_svt_shim(self, job: Job) -> Path:
+        """Creates a wrapper script to intercept SvtAv1EncApp calls and force --output."""
+        shim_dir = job.tempdir / "shim"
+        shim_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get absolute path to real SVT
+        real_svt = str(Path(self.config["svt_path"]).resolve())
+        # Escape backslashes for python string literal
+        real_svt_escaped = real_svt.replace("\\", "\\\\")
+
+        shim_py = shim_dir / "svt_shim.py"
+        with open(shim_py, "w", encoding="utf-8") as f:
+            f.write(f"""
+import sys
+import subprocess
+
+def main():
+    real_exe = "{real_svt_escaped}"
+    args = sys.argv[1:]
+    new_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == '-b':
+            new_args.append('--output')
+        else:
+            new_args.append(args[i])
+        i += 1
+
+    # Run the real executable
+    try:
+        sys.exit(subprocess.call([real_exe] + new_args))
+    except Exception as e:
+        print(f"Shim Error: {{e}}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+""")
+
+        # Create batch file for Windows
+        if IS_WINDOWS:
+            bat_path = shim_dir / "SvtAv1EncApp.bat"
+            with open(bat_path, "w", encoding="utf-8") as f:
+                f.write(f'@python "{shim_py}" %*')
+        else:
+            # For POSIX, create a shell script
+            sh_path = shim_dir / "SvtAv1EncApp"
+            with open(sh_path, "w", encoding="utf-8") as f:
+                f.write(f'#!/bin/sh\npython3 "{shim_py}" "$@"')
+            sh_path.chmod(sh_path.stat().st_mode | 0o111)
+
+        return shim_dir
+
     def _build_av1an_args(self, job: Job, assigned_chunk: List[int]) -> List[str]:
         preset = DEFAULT_PRESETS.get(job.preset_name, DEFAULT_PRESETS["High Quality"])
         chunk_size = len(assigned_chunk)
@@ -465,6 +518,13 @@ class Runner(QObject):
 
         # Append --lp safely without re-parsing/re-quoting
         svt_cli = f"{svt_cli} --lp {threads}".strip()
+
+        # Create shim to fix arguments
+        shim_dir = self._create_svt_shim(job)
+
+        # Update PATH for this process
+        current_path = self.proc_env.get("PATH", "")
+        self.proc_env["PATH"] = str(shim_dir) + os.pathsep + current_path
 
         log_file = LOG_DIR / f"av1an.log.{datetime.date.today()}"
 

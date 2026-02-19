@@ -1,0 +1,2 @@
+#!/bin/sh
+python3 "tmp/test_video_fallback/shim/svt_shim.py" "$@"
