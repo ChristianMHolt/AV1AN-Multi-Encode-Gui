@@ -342,8 +342,17 @@ class Runner(QObject):
     def remove_job(self, job_idx: int):
         with self.run_lock:
             job = self.jobs[job_idx]
-            if job.status in [JobStatus.RUNNING, JobStatus.MUXING, JobStatus.VMAF, JobStatus.PAUSED]:
+            if job.status in [JobStatus.RUNNING, JobStatus.MUXING, JobStatus.VMAF]:
                 return False
+
+            if job.status == JobStatus.PAUSED:
+                if job.proc: _safe_kill(job.proc)
+                if job.mux_proc: _safe_kill(job.mux_proc)
+                if job.vmaf_proc: _safe_kill(job.vmaf_proc)
+
+                if job_idx in self.running:
+                    del self.running[job_idx]
+
             if job_idx in self.queue: self.queue.remove(job_idx)
             job.status = JobStatus.CANCELLED
             if hasattr(job, 'log_file_handle') and job.log_file_handle:
