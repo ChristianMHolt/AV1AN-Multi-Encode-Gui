@@ -56,6 +56,7 @@ class TestRunner(unittest.TestCase):
         job1.total_frames = 1000
         job1.frames_done = 500
         job1.fps_hist = [50.0]
+        job1.avg_fps = 50.0
         job1.infile.name = "video1.mkv"
 
         # Job 2: Queued, 1000 frames total, 0 done
@@ -76,6 +77,42 @@ class TestRunner(unittest.TestCase):
         # FPS: 50
         # ETA = 1500 / 50 = 30s
         runner.total_eta_changed.emit.assert_called_with("ETA: 30s")
+
+    def test_eta_smoothing(self):
+        """Verify that ETA is averaged over time."""
+        config = {
+            "output_dir": "out",
+            "temp_dir": "tmp",
+            "svt_path": "svt",
+        }
+        with patch("shutil.which", return_value="/bin/ls"), patch("worker.check_tool", return_value=True):
+            runner = Runner(config)
+
+        job1 = MagicMock()
+        job1.status = JobStatus.RUNNING
+        job1.total_frames = 1000
+        job1.frames_done = 500
+        job1.fps_hist = [50.0]
+        job1.avg_fps = 50.0
+        job1.infile.name = "video1.mkv"
+        runner.jobs = [job1]
+
+        # Step 1: 50 fps. Remaining 500. Instant ETA = 10s.
+        runner._emit_total_fps()
+        # History: [10.0] -> Avg: 10.0
+        runner.total_eta_changed.emit.assert_called_with("ETA: 10s")
+
+        # Step 2: FPS drops to 25. Remaining 500. Instant ETA = 20s.
+        job1.fps_hist = [25.0]
+        runner._emit_total_fps()
+        # History: [10.0, 20.0] -> Avg: 15.0
+        runner.total_eta_changed.emit.assert_called_with("ETA: 15s")
+
+        # Step 3: FPS recovers to 50. Remaining 500. Instant ETA = 10s.
+        job1.fps_hist = [50.0]
+        runner._emit_total_fps()
+        # History: [10.0, 20.0, 10.0] -> Avg: 13.33s -> 13s
+        runner.total_eta_changed.emit.assert_called_with("ETA: 13s")
 
     def test_probe_fallback(self):
         """Verify fallback calculation when nb_frames is missing."""

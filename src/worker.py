@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from queue import Empty
+from collections import deque
 
 from ui.qt_core import QObject, Signal, QThread, QTimer
 
@@ -247,6 +248,9 @@ class Runner(QObject):
         self._closing = False
         self._next_job_idx = 0
         self._probe_workers = []
+
+        # Smooth Total ETA
+        self.total_eta_history = deque(maxlen=60) # ~7.5 seconds at 8Hz
 
     def update_config(self, config: Dict[str, Any]):
         self.config = config
@@ -753,15 +757,23 @@ class Runner(QObject):
                      all_remaining += max(0, rem)
 
         if total > 0.1 and all_remaining > 0:
-            seconds = all_remaining / total
-            if seconds < 60:
-                eta_str = f"ETA: {int(seconds)}s"
-            elif seconds < 3600:
-                eta_str = f"ETA: {int(seconds//60)}m"
+            instant_eta = all_remaining / total
+            self.total_eta_history.append(instant_eta)
+
+            # Use rolling average of ETA for display
+            smooth_eta = sum(self.total_eta_history) / len(self.total_eta_history)
+
+            if smooth_eta < 60:
+                eta_str = f"ETA: {int(smooth_eta)}s"
+            elif smooth_eta < 3600:
+                eta_str = f"ETA: {int(smooth_eta//60)}m"
             else:
-                eta_str = f"ETA: {seconds/3600:.1f}h"
+                eta_str = f"ETA: {smooth_eta/3600:.1f}h"
             self.total_eta_changed.emit(eta_str)
         else:
+            # If speed drops to 0, clear history so it doesn't get stuck
+            if total <= 0.1:
+                self.total_eta_history.clear()
             self.total_eta_changed.emit("")
 
     def _finalize_mux(self, job: Job):
