@@ -485,6 +485,18 @@ class Runner(QObject):
                     if lock_file.exists(): lock_file.unlink()
                 except: pass
                 
+                chunks_file = job.tempdir / "chunks.json"
+                done_file = job.tempdir / "done.json"
+                if job.tempdir.exists() and not chunks_file.exists() and not done_file.exists():
+                    for item in job.tempdir.iterdir():
+                        try:
+                            if item.is_file():
+                                item.unlink()
+                            elif item.is_dir():
+                                shutil.rmtree(item, onerror=on_rm_error)
+                        except Exception:
+                            pass
+
                 self.notify.emit(f"Starting {job.infile.name}")
                 try:
                     startupinfo = None
